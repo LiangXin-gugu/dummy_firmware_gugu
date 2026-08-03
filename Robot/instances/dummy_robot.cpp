@@ -23,7 +23,7 @@ DummyRobot::DummyRobot(CAN_HandleTypeDef* _hcan) :
     motorJ[ALL] = new CtrlStepMotor(_hcan, 0, false, 1, -180, 180);
     motorJ[1] = new CtrlStepMotor(_hcan, 1, false, 50, -170, 170);
     motorJ[2] = new CtrlStepMotor(_hcan, 2, true, 50, -75, 90);
-    motorJ[3] = new CtrlStepMotor(_hcan, 3, true, 50, 35, 180);
+    motorJ[3] = new CtrlStepMotor(_hcan, 3, false, 50, 35, 180);
     motorJ[4] = new CtrlStepMotor(_hcan, 4, true, 50, -180, 180);
     motorJ[5] = new CtrlStepMotor(_hcan, 5, true, 50, -120, 120);
     motorJ[6] = new CtrlStepMotor(_hcan, 6, true, 50, -720, 720);
@@ -234,7 +234,7 @@ void DummyRobot::Homing()
     float lastSpeed = jointSpeed;
     SetJointSpeed(10);
 
-    MoveJ(0, 0, 90, 0, 0, 0);
+    MoveJ(0, 0, 120, 0, 0, 0);
     MoveJoints(targetJoints);
     while (IsMoving())
         osDelay(10);
@@ -427,6 +427,8 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const std::string &_cmd)
 {
     uint8_t argNum;
 
+    bool accepted = false;
+
     switch (context->commandMode)
     {
         case COMMAND_TARGET_POINT_SEQUENTIAL:
@@ -444,21 +446,24 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const std::string &_cmd)
                                     joints + 3, joints + 4, joints + 5, &speed);
                 if (argNum == 6)
                 {
-                    context->MoveJ(joints[0], joints[1], joints[2],
-                                   joints[3], joints[4], joints[5]);
+                    accepted = context->MoveJ(joints[0], joints[1], joints[2],
+                                              joints[3], joints[4], joints[5]);
                 } else if (argNum == 7)
                 {
                     context->SetJointSpeed(speed);
-                    context->MoveJ(joints[0], joints[1], joints[2],
-                                   joints[3], joints[4], joints[5]);
+                    accepted = context->MoveJ(joints[0], joints[1], joints[2],
+                                              joints[3], joints[4], joints[5]);
                 }
                 // Trigger a transmission immediately, in case IsMoving() returns false
-                context->MoveJoints(context->targetJoints);
+                if (accepted)
+                {
+                    context->MoveJoints(context->targetJoints);
 
-                while (context->IsMoving() && context->IsEnabled())
-                    osDelay(5);
-                Respond(*usbStreamOutputPtr, "ok");
-                Respond(*uart4StreamOutputPtr, "ok");
+                    while (context->IsMoving() && context->IsEnabled())
+                        osDelay(5);
+                    Respond(*usbStreamOutputPtr, "ok");
+                    Respond(*uart4StreamOutputPtr, "ok");
+                }
             } else if (_cmd[0] == '@')
             {
                 float pose[6];
@@ -468,14 +473,21 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const std::string &_cmd)
                                 pose + 3, pose + 4, pose + 5, &speed);
                 if (argNum == 6)
                 {
-                    context->MoveL(pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
+                    accepted = context->MoveL(pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
                 } else if (argNum == 7)
                 {
                     context->SetJointSpeed(speed);
-                    context->MoveL(pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
+                    accepted = context->MoveL(pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
                 }
-                Respond(*usbStreamOutputPtr, "ok");
-                Respond(*uart4StreamOutputPtr, "ok");
+
+                if (accepted)
+                {
+                    context->MoveJoints(context->targetJoints);
+                    while (context->IsMoving() && context->IsEnabled())
+                        osDelay(5);
+                    Respond(*usbStreamOutputPtr, "ok");
+                    Respond(*uart4StreamOutputPtr, "ok");
+                }
             }
 
             break;
@@ -494,16 +506,19 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const std::string &_cmd)
                                     joints + 3, joints + 4, joints + 5, &speed);
                 if (argNum == 6)
                 {
-                    context->MoveJ(joints[0], joints[1], joints[2],
-                                   joints[3], joints[4], joints[5]);
+                    accepted = context->MoveJ(joints[0], joints[1], joints[2],
+                                              joints[3], joints[4], joints[5]);
                 } else if (argNum == 7)
                 {
                     context->SetJointSpeed(speed);
-                    context->MoveJ(joints[0], joints[1], joints[2],
-                                   joints[3], joints[4], joints[5]);
+                    accepted = context->MoveJ(joints[0], joints[1], joints[2],
+                                              joints[3], joints[4], joints[5]);
                 }
-                Respond(*usbStreamOutputPtr, "ok");
-                Respond(*uart4StreamOutputPtr, "ok");
+                if (accepted)
+                {
+                    Respond(*usbStreamOutputPtr, "ok");
+                    Respond(*uart4StreamOutputPtr, "ok");
+                }
             } else if (_cmd[0] == '@')
             {
                 float pose[6];
@@ -513,14 +528,17 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const std::string &_cmd)
                                 pose + 3, pose + 4, pose + 5, &speed);
                 if (argNum == 6)
                 {
-                    context->MoveL(pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
+                    accepted = context->MoveL(pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
                 } else if (argNum == 7)
                 {
                     context->SetJointSpeed(speed);
-                    context->MoveL(pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
+                    accepted = context->MoveL(pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
                 }
-                Respond(*usbStreamOutputPtr, "ok");
-                Respond(*uart4StreamOutputPtr, "ok");
+                if (accepted)
+                {
+                    Respond(*usbStreamOutputPtr, "ok");
+                    Respond(*uart4StreamOutputPtr, "ok");
+                }
             }
             break;
 

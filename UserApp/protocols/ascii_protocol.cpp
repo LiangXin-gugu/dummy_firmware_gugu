@@ -108,7 +108,10 @@ void OnUsbAsciiCmd(const char* _cmd, size_t _len, StreamSink &_responseChannel)
     } else if (_cmd[0] == '>' || _cmd[0] == '@' || _cmd[0] == '&')
     {
         uint32_t freeSize = dummy.commandHandler.Push(_cmd);
-        Respond(_responseChannel, "%d", freeSize);
+        if (freeSize == 0xFF)
+            Respond(_responseChannel, "error queue full");
+        else
+            Respond(_responseChannel, "ok queued free=%lu", (unsigned long) freeSize);
     }
 
 /*---------------------------- ↑ Add Your CMDs Here ↑ -----------------------------*/
@@ -173,7 +176,10 @@ void OnUart4AsciiCmd(const char* _cmd, size_t _len, StreamSink &_responseChannel
     } else if (_cmd[0] == '>' || _cmd[0] == '@' || _cmd[0] == '&')
     {
         uint32_t freeSize = dummy.commandHandler.Push(_cmd);
-        Respond(_responseChannel, "%d", freeSize);
+        if (freeSize == 0xFF)
+            Respond(_responseChannel, "error queue full");
+        else
+            Respond(_responseChannel, "ok queued free=%lu", (unsigned long) freeSize);
     }
 /*---------------------------- ↑ Add Your CMDs Here ↑ -----------------------------*/
 }

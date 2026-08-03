@@ -1,0 +1,6 @@
+cmake-build-*/
+.idea/workspace.xml
+.idea/shelf/
+.idea/httpRequests/
+.vscode/
+.idea/
