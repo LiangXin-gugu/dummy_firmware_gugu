@@ -516,8 +516,15 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const std::string &_cmd)
                 }
                 if (accepted)
                 {
+                    Respond(*usbStreamOutputPtr, "context->MoveJ succeeded");
+                    Respond(*uart4StreamOutputPtr, "context->MoveJ succeeded");
                     Respond(*usbStreamOutputPtr, "ok");
                     Respond(*uart4StreamOutputPtr, "ok");
+                }
+                else
+                {
+                    Respond(*usbStreamOutputPtr, "context->MoveJ failed, check whether joint limits are exceeded");
+                    Respond(*uart4StreamOutputPtr, "context->MoveJ failed, check whether joint limits are exceeded");
                 }
             } else if (_cmd[0] == '@')
             {
@@ -536,8 +543,15 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const std::string &_cmd)
                 }
                 if (accepted)
                 {
+                    Respond(*usbStreamOutputPtr, "context->MoveL succeeded");
+                    Respond(*uart4StreamOutputPtr, "context->MoveL succeeded");
                     Respond(*usbStreamOutputPtr, "ok");
                     Respond(*uart4StreamOutputPtr, "ok");
+                }
+                else
+                {
+                    Respond(*usbStreamOutputPtr, "context->MoveL failed");
+                    Respond(*uart4StreamOutputPtr, "context->MoveL failed");
                 }
             }
             break;

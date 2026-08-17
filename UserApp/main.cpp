@@ -198,12 +198,12 @@ void Main(void)
     };
     oledTaskHandle = osThreadNew(ThreadOledUpdate, nullptr, &oledTask_attributes);
 
-    const osThreadAttr_t rgbTask_attributes = {
-            .name = "RGBTask",
-            .stack_size = 2000,
-            .priority = (osPriority_t) osPriorityNormal,   // should >= Normal
-    };
-    rgbTaskHandle = osThreadNew(ThreadRGBUpdate, nullptr, &rgbTask_attributes);
+    // const osThreadAttr_t rgbTask_attributes = {
+    //         .name = "RGBTask",
+    //         .stack_size = 2000,
+    //         .priority = (osPriority_t) osPriorityNormal,   // should >= Normal
+    // };
+    // rgbTaskHandle = osThreadNew(ThreadRGBUpdate, nullptr, &rgbTask_attributes);
 
     // Start Timer Callbacks.
     timerCtrlLoop.SetCallback(OnTimer7Callback);
