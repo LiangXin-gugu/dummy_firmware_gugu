@@ -53,9 +53,11 @@ void ThreadControlLoopFixUpdate(void* argument)
 osThreadId_t ControlLoopUpdateHandle;
 void ThreadControlLoopUpdate(void* argument)
 {
+    char cmd[DummyRobot::CommandHandler::CMD_MAX_LENGTH];
     for (;;)
     {
-        dummy.commandHandler.ParseCommand(dummy.commandHandler.Pop(osWaitForever));
+        if (dummy.commandHandler.Pop(cmd, osWaitForever))
+            dummy.commandHandler.ParseCommand(cmd);
     }
 }
 

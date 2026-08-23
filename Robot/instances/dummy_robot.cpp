@@ -1,6 +1,8 @@
 #include "communication.hpp"
 #include "dummy_robot.h"
 
+#include <cstring>
+
 inline float AbsMaxOf6(DOF6Kinematic::Joint6D_t _joints, uint8_t &_index)
 {
     float max = -1;
@@ -389,9 +391,15 @@ void DummyHand::SetEnable(bool _enable)
 }
 
 
-uint32_t DummyRobot::CommandHandler::Push(const std::string &_cmd)
+uint32_t DummyRobot::CommandHandler::Push(const char* _cmd)
 {
-    osStatus_t status = osMessageQueuePut(commandFifo, _cmd.c_str(), 0U, 0U);
+    // Copy into a fixed-size message so osMessageQueuePut (msg_size=CMD_MAX_LENGTH)
+    // never reads past the caller's buffer. No heap allocation involved.
+    char msg[CMD_MAX_LENGTH];
+    strncpy(msg, _cmd, CMD_MAX_LENGTH - 1);
+    msg[CMD_MAX_LENGTH - 1] = 0;
+
+    osStatus_t status = osMessageQueuePut(commandFifo, msg, 0U, 0U);
     if (status == osOK)
         return osMessageQueueGetSpace(commandFifo);
 
@@ -409,11 +417,9 @@ void DummyRobot::CommandHandler::EmergencyStop()
 }
 
 
-std::string DummyRobot::CommandHandler::Pop(uint32_t timeout)
+bool DummyRobot::CommandHandler::Pop(char* _buffer, uint32_t timeout)
 {
-    osStatus_t status = osMessageQueueGet(commandFifo, strBuffer, nullptr, timeout);
-
-    return std::string{strBuffer};
+    return osMessageQueueGet(commandFifo, _buffer, nullptr, timeout) == osOK;
 }
 
 
@@ -423,7 +429,7 @@ uint32_t DummyRobot::CommandHandler::GetSpace()
 }
 
 
-uint32_t DummyRobot::CommandHandler::ParseCommand(const std::string &_cmd)
+uint32_t DummyRobot::CommandHandler::ParseCommand(const char* _cmd)
 {
     uint8_t argNum;
 
@@ -439,10 +445,10 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const std::string &_cmd)
                 float speed;
 
                 if (_cmd[0] == '>')
-                    argNum = sscanf(_cmd.c_str(), ">%f,%f,%f,%f,%f,%f,%f", joints, joints + 1, joints + 2,
+                    argNum = sscanf(_cmd, ">%f,%f,%f,%f,%f,%f,%f", joints, joints + 1, joints + 2,
                                     joints + 3, joints + 4, joints + 5, &speed);
                 if (_cmd[0] == '&')
-                    argNum = sscanf(_cmd.c_str(), "&%f,%f,%f,%f,%f,%f,%f", joints, joints + 1, joints + 2,
+                    argNum = sscanf(_cmd, "&%f,%f,%f,%f,%f,%f,%f", joints, joints + 1, joints + 2,
                                     joints + 3, joints + 4, joints + 5, &speed);
                 if (argNum == 6)
                 {
@@ -469,7 +475,7 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const std::string &_cmd)
                 float pose[6];
                 float speed;
 
-                argNum = sscanf(_cmd.c_str(), "@%f,%f,%f,%f,%f,%f,%f", pose, pose + 1, pose + 2,
+                argNum = sscanf(_cmd, "@%f,%f,%f,%f,%f,%f,%f", pose, pose + 1, pose + 2,
                                 pose + 3, pose + 4, pose + 5, &speed);
                 if (argNum == 6)
                 {
@@ -499,10 +505,10 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const std::string &_cmd)
                 float speed;
 
                 if (_cmd[0] == '>')
-                    argNum = sscanf(_cmd.c_str(), ">%f,%f,%f,%f,%f,%f,%f", joints, joints + 1, joints + 2,
+                    argNum = sscanf(_cmd, ">%f,%f,%f,%f,%f,%f,%f", joints, joints + 1, joints + 2,
                                     joints + 3, joints + 4, joints + 5, &speed);
                 if (_cmd[0] == '&')
-                    argNum = sscanf(_cmd.c_str(), "&%f,%f,%f,%f,%f,%f,%f", joints, joints + 1, joints + 2,
+                    argNum = sscanf(_cmd, "&%f,%f,%f,%f,%f,%f,%f", joints, joints + 1, joints + 2,
                                     joints + 3, joints + 4, joints + 5, &speed);
                 if (argNum == 6)
                 {
@@ -531,7 +537,7 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const std::string &_cmd)
                 float pose[6];
                 float speed;
 
-                argNum = sscanf(_cmd.c_str(), "@%f,%f,%f,%f,%f,%f,%f", pose, pose + 1, pose + 2,
+                argNum = sscanf(_cmd, "@%f,%f,%f,%f,%f,%f,%f", pose, pose + 1, pose + 2,
                                 pose + 3, pose + 4, pose + 5, &speed);
                 if (argNum == 6)
                 {

@@ -177,14 +177,17 @@ public:
     class CommandHandler
     {
     public:
+        // Fixed message size of the FIFO, avoids any per-command heap allocation
+        static const uint32_t CMD_MAX_LENGTH = 64;
+
         explicit CommandHandler(DummyRobot* _context) : context(_context)
         {
-            commandFifo = osMessageQueueNew(16, 64, nullptr);
+            commandFifo = osMessageQueueNew(16, CMD_MAX_LENGTH, nullptr);
         }
 
-        uint32_t Push(const std::string &_cmd);
-        std::string Pop(uint32_t timeout);
-        uint32_t ParseCommand(const std::string &_cmd);
+        uint32_t Push(const char* _cmd);
+        bool Pop(char* _buffer, uint32_t timeout);
+        uint32_t ParseCommand(const char* _cmd);
         uint32_t GetSpace();
         void ClearFifo();
         void EmergencyStop();
@@ -193,7 +196,6 @@ public:
     private:
         DummyRobot* context;
         osMessageQueueId_t commandFifo;
-        char strBuffer[64]{};
     };
     CommandHandler commandHandler = CommandHandler(this);
 
