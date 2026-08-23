@@ -89,7 +89,7 @@ DOF6Kinematic::DOF6Kinematic(float L_BS, float D_BS, float L_AM, float L_FA, flo
         {0.0f,            armConfig.L_BASE,    armConfig.D_BASE, -(float) M_PI_2},
         {-(float) M_PI_2, 0.0f,                armConfig.L_ARM,  0.0f},
         {(float) M_PI_2,  armConfig.D_ELBOW,   0.0f,             (float) M_PI_2},
-        {0.0f,            armConfig.L_FOREARM, 0.0f,             -(float) M_PI_2},
+        {0.0f,            0.0f,                -armConfig.L_FOREARM, -(float) M_PI_2},
         {0.0f,            0.0f,                0.0f,             (float) M_PI_2},
         {0.0f,            armConfig.L_WRIST, 0.0f, 0.0f}
     };
