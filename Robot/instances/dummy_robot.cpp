@@ -90,7 +90,7 @@ bool DummyRobot::MoveJ(float _j1, float _j2, float _j3, float _j4, float _j5, fl
         for (int j = 1; j <= 6; j++)
         {
             dynamicJointSpeeds.a[j - 1] =
-                abs(deltaJoints.a[j - 1] * (float) (motorJ[j]->reduction) / time * 0.1f); //0~10r/s
+                abs(deltaJoints.a[j - 1] * (float) (motorJ[j]->reduction) / time * JOINT_SPEED_UNIT_TO_RPS); // r/s on motor shaft
         }
 
         jointsStateFlag = 0;
@@ -468,7 +468,7 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const char* _cmd)
                     while (context->IsMoving() && context->IsEnabled())
                         osDelay(5);
                     Respond(*usbStreamOutputPtr, "ok");
-                    Respond(*uart4StreamOutputPtr, "ok");
+                    // Respond(*uart4StreamOutputPtr, "ok");
                 }
             } else if (_cmd[0] == '@')
             {
@@ -492,7 +492,7 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const char* _cmd)
                     while (context->IsMoving() && context->IsEnabled())
                         osDelay(5);
                     Respond(*usbStreamOutputPtr, "ok");
-                    Respond(*uart4StreamOutputPtr, "ok");
+                    // Respond(*uart4StreamOutputPtr, "ok");
                 }
             }
 
@@ -522,15 +522,15 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const char* _cmd)
                 }
                 if (accepted)
                 {
-                    Respond(*usbStreamOutputPtr, "context->MoveJ succeeded");
-                    Respond(*uart4StreamOutputPtr, "context->MoveJ succeeded");
+                    // Respond(*usbStreamOutputPtr, "context->MoveJ succeeded");
+                    // Respond(*uart4StreamOutputPtr, "context->MoveJ succeeded");
                     Respond(*usbStreamOutputPtr, "ok");
-                    Respond(*uart4StreamOutputPtr, "ok");
+                    // Respond(*uart4StreamOutputPtr, "ok");
                 }
                 else
                 {
                     Respond(*usbStreamOutputPtr, "context->MoveJ failed, check whether joint limits are exceeded");
-                    Respond(*uart4StreamOutputPtr, "context->MoveJ failed, check whether joint limits are exceeded");
+                    // Respond(*uart4StreamOutputPtr, "context->MoveJ failed, check whether joint limits are exceeded");
                 }
             } else if (_cmd[0] == '@')
             {
@@ -549,15 +549,15 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const char* _cmd)
                 }
                 if (accepted)
                 {
-                    Respond(*usbStreamOutputPtr, "context->MoveL succeeded");
-                    Respond(*uart4StreamOutputPtr, "context->MoveL succeeded");
+                    // Respond(*usbStreamOutputPtr, "context->MoveL succeeded");
+                    // Respond(*uart4StreamOutputPtr, "context->MoveL succeeded");
                     Respond(*usbStreamOutputPtr, "ok");
-                    Respond(*uart4StreamOutputPtr, "ok");
+                    // Respond(*uart4StreamOutputPtr, "ok");
                 }
                 else
                 {
                     Respond(*usbStreamOutputPtr, "context->MoveL failed");
-                    Respond(*uart4StreamOutputPtr, "context->MoveL failed");
+                    // Respond(*uart4StreamOutputPtr, "context->MoveL failed");
                 }
             }
             break;

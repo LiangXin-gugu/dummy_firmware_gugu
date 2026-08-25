@@ -105,7 +105,10 @@ public:
 
     // This is the pose when power on.
     const DOF6Kinematic::Joint6D_t REST_POSE = {0, -75, 180, 0, 0, 0};
-    const float DEFAULT_JOINT_SPEED = 50;  // degree/s
+    // Unit of jointSpeed: 1 unit = 0.1 r/s on MOTOR shaft (motor side, not reducer side).
+    // jointSpeed range 0~100 maps to motor velocity limit 0~10 r/s. Tune this to change the cap.
+    const float JOINT_SPEED_UNIT_TO_RPS = 0.1f;
+    const float DEFAULT_JOINT_SPEED = 50;  // jointSpeed percent, scope 0~100, maximum 100 means 100*JOINT_SPEED_UNIT_TO_RPS r/s on motor shaft
     const DOF6Kinematic::Joint6D_t DEFAULT_JOINT_ACCELERATION_BASES = {150, 100, 200, 200, 200, 200};
     const float DEFAULT_JOINT_ACCELERATION_LOW = 15;    // 0~100
     const float DEFAULT_JOINT_ACCELERATION_HIGH = 100;  // 0~100
