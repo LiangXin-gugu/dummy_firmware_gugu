@@ -377,6 +377,9 @@ def send_trajectory_to_robot(
     stream: bool = False,
     sample_interval: float = 0.02,
     sample_feedback: bool = True,
+    speed_factor: float = 0.2,
+    acc_percent: float = 100.0,
+    acc_base: list[float] | None = None,
 ):
     """
     通过 RobotArmSDK.move_j 逐点下发轨迹, 同时记录:
@@ -399,8 +402,16 @@ def send_trajectory_to_robot(
                     防止高频 GETJPOS 压垮固件
     sample_feedback : False 时不启动 GETJPOS 反馈采样线程,
                     串口带宽全部留给 move_j 下发
+    speed_factor  : 速度单位->电机轴 r/s 换算系数, 使能后下发,
+                    固件夹取到 [0.01, 1.0], 默认 0.2
+    acc_percent   : 加速度百分比, 使能后下发, 固件夹取到 [0, 100], 默认 100
+    acc_base      : 6 关节加速度基值 (r/s²), 使能后下发, 固件逐个夹取到
+                    [0, 200], 默认 [150, 100, 200, 200, 200, 200]
     """
     from dummy_robot_sdk import RobotArmSDK, SDKError
+
+    if acc_base is None:
+        acc_base = [150.0, 100.0, 200.0, 200.0, 200.0, 200.0]
 
     robot = RobotArmSDK(port)
     print(f"[下发] 已连接机械臂: {port}")
@@ -424,6 +435,14 @@ def send_trajectory_to_robot(
             # 使能 & 设置连续轨迹模式
             print("[下发] 使能机器人 ...")
             robot.start()
+
+            # 使能后设置速度/加速度参数 (固件侧各自夹取到有效范围)
+            print(f"[下发] 设置速度系数 speed_factor={speed_factor} ...")
+            robot.set_speed_factor(speed_factor)
+            print(f"[下发] 设置加速度百分比 acc_percent={acc_percent} ...")
+            robot.set_acc_percent(acc_percent)
+            print(f"[下发] 设置加速度基值 acc_base={acc_base} ...")
+            robot.set_acc_base(acc_base)
 
             # print("[下发] 设置连续轨迹模式 (CMDMODE=3) ...")
             # robot.set_command_mode(3)
@@ -597,11 +616,11 @@ def plot_saved_log(log_path: str):
 # ======================================================================
 def main():
     parser = argparse.ArgumentParser(description="正弦轨迹测试")
-    parser.add_argument("--Ts", type=float, default=2.0,
+    parser.add_argument("--Ts", type=float, default=1.0,
                         help="1/4 正弦周期 (秒), 默认 2.0")
     parser.add_argument("--freq", type=float, default=50.0,
                         help="采样频率 f (Hz), 默认 50")
-    parser.add_argument("--amplitude", type=float, default=45.0,
+    parser.add_argument("--amplitude", type=float, default=90.0,
                         help="正弦幅值 (度), 默认 180")
     parser.add_argument("--base_pose", type=float, nargs=6,
                         default=[0.0, -75.0, 180.0, 0.0, 0.0, 0.0],
@@ -612,8 +631,17 @@ def main():
                         help="仅下发机械臂, 不启动 viser 可视化")
     parser.add_argument("--port", type=str, default="/dev/ttyACM0",
                         help="串口端口, 默认 /dev/ttyACM0")
-    parser.add_argument("--speed", type=int, default=100,
+    parser.add_argument("--speed", type=int, default=50,
                         help="move_j 速度参数 (可选)")
+    parser.add_argument("--speed_factor", type=float, default=0.2,
+                        help="速度单位->电机轴 r/s 换算系数, 使能后下发, "
+                             "固件夹取[0.01,1.0], 默认 0.2")
+    parser.add_argument("--acc_percent", type=float, default=50.0,
+                        help="加速度百分比, 使能后下发, 固件夹取[0,100], 默认 100")
+    parser.add_argument("--acc_base", type=float, nargs=6,
+                        default=[150.0, 100.0, 200.0, 200.0, 200.0, 200.0],
+                        help="6关节加速度基值(r/s²), 使能后下发, 固件逐个夹取"
+                             "[0,200], 默认 150 100 200 200 200 200")
     parser.add_argument("--vis_step", type=int, default=1,
                         help="可视化跳帧步长, 默认 1 (每帧)")
     parser.add_argument("--no_plot", action="store_true",
@@ -658,7 +686,10 @@ def main():
                                  realtime_plot=not args.no_plot,
                                  stream=args.stream,
                                  sample_interval=args.sample_interval,
-                                 sample_feedback=not args.no_sample)
+                                 sample_feedback=not args.no_sample,
+                                 speed_factor=args.speed_factor,
+                                 acc_percent=args.acc_percent,
+                                 acc_base=args.acc_base)
 
     else:
         # 先可视化, 播放完成后再下发
@@ -668,7 +699,10 @@ def main():
                                  realtime_plot=not args.no_plot,
                                  stream=args.stream,
                                  sample_interval=args.sample_interval,
-                                 sample_feedback=not args.no_sample)
+                                 sample_feedback=not args.no_sample,
+                                 speed_factor=args.speed_factor,
+                                 acc_percent=args.acc_percent,
+                                 acc_base=args.acc_base)
         print("[完成] 轨迹已下发, Ctrl+C 退出")
         viewer.wait_for_close()
 

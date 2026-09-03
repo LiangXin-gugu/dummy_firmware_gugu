@@ -91,6 +91,18 @@ _RESP_SET_DCE = re.compile(r"^(ok|error) SET MOTOR \[\d+\] DCE_K[PID] \[\d+\]( i
 _RESP_REBOOT = re.compile(r"^(ok|error) REBOOT MOTOR \[\d+\]$")
 # 命令模式切换："ok Set command mode to [n]"
 _RESP_CMDMODE = re.compile(r"^ok Set command mode to \[\d+\]$")
+# 速度配置查询："ok <jointSpeed> <unitToRps>"（2 个浮点）
+_RESP_SPEED_CFG = re.compile(r"^ok -?\d+\.\d+ -?\d+\.\d+$")
+# 加速度配置查询："ok <percent> <b1>..<b6>"（7 个浮点）
+_RESP_ACC_CFG = re.compile(r"^ok -?\d+\.\d+( -?\d+\.\d+){6}$")
+# 速度系数设置："ok SET SPEED_UNIT_TO_RPS [v]"
+_RESP_SET_SPEED_FACTOR = re.compile(r"^ok SET SPEED_UNIT_TO_RPS \[-?\d+\.\d+\]$")
+# 加速度百分比设置："ok SET ACC_Percent [v]"
+_RESP_SET_ACC_PERCENT = re.compile(r"^ok SET ACC_Percent \[-?\d+\.\d+\]$")
+# 加速度基值设置："ok SET ACC_BASE [b1..b6]" 或 "error SET_ACC_BASE needs 6 args, got n"
+_RESP_SET_ACC_BASE = re.compile(
+    r"^(ok SET ACC_BASE \[-?\d+\.\d+( -?\d+\.\d+){5}\]"
+    r"|error SET_ACC_BASE needs 6 args, got \d+)$")
 
 
 class _PendingTx:
@@ -361,6 +373,26 @@ class RobotArmSDK:
         line = self.send_command("#GETLPOS", pattern=_RESP_6FLOAT, timeout=timeout)
         return self._parse_6_floats(line)
 
+    def get_speed_config(self, timeout=None):
+        """#GET_SPEED_CFG 读取速度配置，返回 [jointSpeed, jointSpeedUnitToRps]。
+
+        jointSpeed 为速度百分比(0~100)，jointSpeedUnitToRps 为速度单位到
+        电机轴 r/s 的换算系数。
+        """
+        line = self.send_command("#GET_SPEED_CFG", pattern=_RESP_SPEED_CFG,
+                                 timeout=timeout)
+        parts = line.split()
+        return [float(parts[1]), float(parts[2])]
+
+    def get_acc_config(self, timeout=None):
+        """#GET_ACC_CFG 读取加速度配置，返回 [jointAccPercent, b1..b6]。
+
+        首元素为加速度百分比(0~100)，其后 6 个为各关节加速度基值(r/s²)。
+        """
+        line = self.send_command("#GET_ACC_CFG", pattern=_RESP_ACC_CFG,
+                                 timeout=timeout)
+        return [float(x) for x in line.split()[1:8]]
+
     # ------------------------------------------------------------------
     # 参数类命令（'#'）
     # ------------------------------------------------------------------
@@ -397,6 +429,35 @@ class RobotArmSDK:
         """#CMDMODE mode 切换运动命令模式（决定 '>' '@' 的解析与应答行为）。"""
         return self.send_command("#CMDMODE %d" % mode,
                                  pattern=_RESP_CMDMODE, timeout=timeout)
+
+    def set_speed_factor(self, unit, timeout=None):
+        """#SET_SPEED_FACTOR unit 设置速度单位->电机轴 r/s 换算系数。
+
+        对应固件 jointSpeedUnitToRps，固件侧夹取到 [0.01, 1.0]；决定
+        jointSpeed 百分比映射到的实际电机转速上限。
+        """
+        return self.send_command("#SET_SPEED_FACTOR %.3f" % float(unit),
+                                 pattern=_RESP_SET_SPEED_FACTOR, timeout=timeout)
+
+    def set_acc_percent(self, percent, timeout=None):
+        """#SET_ACC_Percent percent 设置加速度百分比并立即下发生效。
+
+        对应固件 jointAccPercent，夹取到 [0, 100]；固件随后立即
+        ApplyJointAcceleration()，按 percent/100 × 各关节基值 推送到电机。
+        """
+        return self.send_command("#SET_ACC_Percent %.2f" % float(percent),
+                                 pattern=_RESP_SET_ACC_PERCENT, timeout=timeout)
+
+    def set_acc_base(self, bases, timeout=None):
+        """#SET_ACC_BASE b1 b2 b3 b4 b5 b6 设置 6 关节加速度基值并立即生效。
+
+        bases 为 6 个浮点(r/s²)，固件侧逐个夹取到 [0, 200]；设置后固件立即
+        ApplyJointAcceleration()，把 当前百分比 × 新基值 推送到电机。
+        """
+        if len(bases) != 6:
+            raise SDKError("必须提供 6 个加速度基值，当前 %d 个" % len(bases))
+        cmd = "#SET_ACC_BASE " + " ".join("%.2f" % float(v) for v in bases)
+        return self.send_command(cmd, pattern=_RESP_SET_ACC_BASE, timeout=timeout)
 
     # ------------------------------------------------------------------
     # 运动类命令（'>' '&' '@'，固件先入 FIFO 后台执行）

@@ -105,12 +105,12 @@ public:
 
     // This is the pose when power on.
     const DOF6Kinematic::Joint6D_t REST_POSE = {0, -75, 180, 0, 0, 0};
-    // Unit of jointSpeed: 1 unit = 0.1 r/s on MOTOR shaft (motor side, not reducer side).
-    // jointSpeed range 0~100 maps to motor velocity limit 0~10 r/s. Tune this to change the cap.
-    const float JOINT_SPEED_UNIT_TO_RPS = 0.1f;
+    // Unit of jointSpeed: 1 unit = JOINT_SPEED_UNIT_TO_RPS r/s on MOTOR shaft (motor side, not reducer side).
+    // jointSpeed range 0~100 maps to motor velocity limit 0~(100*JOINT_SPEED_UNIT_TO_RPS) r/s. Tune this to change the cap.
+    const float DEFAULT_JOINT_SPEED_UNIT_TO_RPS = 0.2f;
     const float DEFAULT_JOINT_SPEED = 50;  // jointSpeed percent, scope 0~100, maximum 100 means 100*JOINT_SPEED_UNIT_TO_RPS r/s on motor shaft
     const DOF6Kinematic::Joint6D_t DEFAULT_JOINT_ACCELERATION_BASES = {150, 100, 200, 200, 200, 200};
-    const float DEFAULT_JOINT_ACCELERATION_LOW = 15;    // 0~100
+    // const float DEFAULT_JOINT_ACCELERATION_LOW = 15;    // 0~100
     const float DEFAULT_JOINT_ACCELERATION_HIGH = 100;  // 0~100
     const CommandMode DEFAULT_COMMAND_MODE = COMMAND_TARGET_POINT_INTERRUPTABLE;
 
@@ -129,8 +129,15 @@ public:
     bool MoveJ(float _j1, float _j2, float _j3, float _j4, float _j5, float _j6);
     bool MoveL(float _x, float _y, float _z, float _a, float _b, float _c);
     void MoveJoints(DOF6Kinematic::Joint6D_t _joints);
-    void SetJointSpeed(float _speed);
-    void SetJointAcceleration(float _acc);
+    void SetJointSpeedPercent(float _speed);
+    void SetJointSpeedFactor(float _unit);
+    void SetJointAccelerationPercent(float _acc);
+    void SetJointAccelerationBases(float _b1, float _b2, float _b3, float _b4, float _b5, float _b6);
+    void ApplyJointAcceleration();
+    float GetJointSpeedPercent() const;
+    float GetJointSpeedFactor() const;
+    float GetJointAccelerationPercent() const;
+    DOF6Kinematic::Joint6D_t GetJointAccelerationBases() const;
     void UpdateJointAngles();
     void UpdateJointAnglesCallback();
     void UpdateJointPose6D();
@@ -169,8 +176,8 @@ public:
             make_protocol_function("set_rgb_mode", *this, &DummyRobot::SetRGBMode, "mode"),
             make_protocol_function("move_j", *this, &DummyRobot::MoveJ, "j1", "j2", "j3", "j4", "j5", "j6"),
             make_protocol_function("move_l", *this, &DummyRobot::MoveL, "x", "y", "z", "a", "b", "c"),
-            make_protocol_function("set_joint_speed", *this, &DummyRobot::SetJointSpeed, "speed"),
-            make_protocol_function("set_joint_acc", *this, &DummyRobot::SetJointAcceleration, "acc"),
+            make_protocol_function("set_joint_speed", *this, &DummyRobot::SetJointSpeedPercent, "speed"),
+            make_protocol_function("set_joint_acc", *this, &DummyRobot::SetJointAccelerationPercent, "acc"),
             make_protocol_function("set_command_mode", *this, &DummyRobot::SetCommandMode, "mode"),
             make_protocol_object("tuning", tuningHelper.MakeProtocolDefinitions())
         );
@@ -206,7 +213,10 @@ public:
 private:
     CAN_HandleTypeDef* hcan;
     float jointSpeed = DEFAULT_JOINT_SPEED;
+    float jointSpeedUnitToRps = DEFAULT_JOINT_SPEED_UNIT_TO_RPS;
     float jointSpeedRatio = 1;
+    DOF6Kinematic::Joint6D_t jointAccelerationBases = DEFAULT_JOINT_ACCELERATION_BASES;
+    float jointAccPercent = DEFAULT_JOINT_ACCELERATION_HIGH;
     DOF6Kinematic::Joint6D_t dynamicJointSpeeds = {1, 1, 1, 1, 1, 1};
     DOF6Kinematic* dof6Solver;
     bool isEnabled = false;

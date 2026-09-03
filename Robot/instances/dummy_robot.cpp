@@ -48,7 +48,8 @@ DummyRobot::~DummyRobot()
 void DummyRobot::Init()
 {
     SetCommandMode(DEFAULT_COMMAND_MODE);
-    SetJointSpeed(DEFAULT_JOINT_SPEED);
+    SetJointSpeedPercent(DEFAULT_JOINT_SPEED);
+    ApplyJointAcceleration();
 }
 
 
@@ -90,7 +91,7 @@ bool DummyRobot::MoveJ(float _j1, float _j2, float _j3, float _j4, float _j5, fl
         for (int j = 1; j <= 6; j++)
         {
             dynamicJointSpeeds.a[j - 1] =
-                abs(deltaJoints.a[j - 1] * (float) (motorJ[j]->reduction) / time * JOINT_SPEED_UNIT_TO_RPS); // r/s on motor shaft
+                abs(deltaJoints.a[j - 1] * (float) (motorJ[j]->reduction) / time * jointSpeedUnitToRps); // r/s on motor shaft
         }
 
         jointsStateFlag = 0;
@@ -179,7 +180,7 @@ void DummyRobot::UpdateJointAnglesCallback()
 }
 
 
-void DummyRobot::SetJointSpeed(float _speed)
+void DummyRobot::SetJointSpeedPercent(float _speed)
 {
     if (_speed < 0)_speed = 0;
     else if (_speed > 100) _speed = 100;
@@ -187,14 +188,57 @@ void DummyRobot::SetJointSpeed(float _speed)
     jointSpeed = _speed * jointSpeedRatio;
 }
 
+void DummyRobot::SetJointSpeedFactor(float _unit)
+{
+    if (_unit < 0.01f) _unit = 0.01f;
+    else if (_unit > 1.0f) _unit = 1.0f;
 
-void DummyRobot::SetJointAcceleration(float _acc)
+    jointSpeedUnitToRps = _unit;
+}
+
+void DummyRobot::SetJointAccelerationPercent(float _acc)
 {
     if (_acc < 0)_acc = 0;
     else if (_acc > 100) _acc = 100;
 
+    jointAccPercent = _acc;
+}
+
+void DummyRobot::SetJointAccelerationBases(float _b1, float _b2, float _b3, float _b4, float _b5, float _b6)
+{
+    float b[6] = {_b1, _b2, _b3, _b4, _b5, _b6};
+    for (int i = 0; i < 6; i++)
+    {
+        if (b[i] < 0) b[i] = 0;
+        else if (b[i] > 200) b[i] = 200;
+        jointAccelerationBases.a[i] = b[i];
+    }
+}
+
+void DummyRobot::ApplyJointAcceleration()
+{
     for (int i = 1; i <= 6; i++)
-        motorJ[i]->SetAcceleration(_acc / 100 * DEFAULT_JOINT_ACCELERATION_BASES.a[i - 1]);
+        motorJ[i]->SetAcceleration(jointAccPercent / 100 * jointAccelerationBases.a[i - 1]);
+}
+
+float DummyRobot::GetJointSpeedPercent() const
+{
+    return jointSpeed;
+}
+
+float DummyRobot::GetJointSpeedFactor() const
+{
+    return jointSpeedUnitToRps;
+}
+
+float DummyRobot::GetJointAccelerationPercent() const
+{
+    return jointAccPercent;
+}
+
+DOF6Kinematic::Joint6D_t DummyRobot::GetJointAccelerationBases() const
+{
+    return jointAccelerationBases;
 }
 
 
@@ -234,21 +278,21 @@ void DummyRobot::CalibrateHomeOffset()
 void DummyRobot::Homing()
 {
     float lastSpeed = jointSpeed;
-    SetJointSpeed(10);
+    SetJointSpeedPercent(10);
 
     MoveJ(0, 0, 120, 0, 0, 0);
     MoveJoints(targetJoints);
     while (IsMoving())
         osDelay(10);
 
-    SetJointSpeed(lastSpeed);
+    SetJointSpeedPercent(lastSpeed);
 }
 
 
 void DummyRobot::Resting()
 {
     float lastSpeed = jointSpeed;
-    SetJointSpeed(10);
+    SetJointSpeedPercent(10);
 
     MoveJ(REST_POSE.a[0], REST_POSE.a[1], REST_POSE.a[2],
           REST_POSE.a[3], REST_POSE.a[4], REST_POSE.a[5]);
@@ -256,7 +300,7 @@ void DummyRobot::Resting()
     while (IsMoving())
         osDelay(10);
 
-    SetJointSpeed(lastSpeed);
+    SetJointSpeedPercent(lastSpeed);
 }
 
 
@@ -315,20 +359,20 @@ void DummyRobot::SetCommandMode(uint32_t _mode)
 
     commandMode = static_cast<CommandMode>(_mode);
 
-    switch (commandMode)
-    {
-        case COMMAND_TARGET_POINT_SEQUENTIAL:
-        case COMMAND_TARGET_POINT_INTERRUPTABLE:
-            jointSpeedRatio = 1;
-            SetJointAcceleration(DEFAULT_JOINT_ACCELERATION_LOW);
-            break;
-        case COMMAND_CONTINUES_TRAJECTORY:
-            SetJointAcceleration(DEFAULT_JOINT_ACCELERATION_HIGH);
-            jointSpeedRatio = 0.3;
-            break;
-        case COMMAND_MOTOR_TUNING:
-            break;
-    }
+    // switch (commandMode)
+    // {
+    //     case COMMAND_TARGET_POINT_SEQUENTIAL:
+    //     case COMMAND_TARGET_POINT_INTERRUPTABLE:
+    //         jointSpeedRatio = 1;
+    //         SetJointAccelerationPercent(DEFAULT_JOINT_ACCELERATION_LOW);
+    //         break;
+    //     case COMMAND_CONTINUES_TRAJECTORY:
+    //         SetJointAccelerationPercent(DEFAULT_JOINT_ACCELERATION_HIGH);
+    //         jointSpeedRatio = 0.3;
+    //         break;
+    //     case COMMAND_MOTOR_TUNING:
+    //         break;
+    // }
 }
 
 
@@ -456,7 +500,7 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const char* _cmd)
                                               joints[3], joints[4], joints[5]);
                 } else if (argNum == 7)
                 {
-                    context->SetJointSpeed(speed);
+                    context->SetJointSpeedPercent(speed);
                     accepted = context->MoveJ(joints[0], joints[1], joints[2],
                                               joints[3], joints[4], joints[5]);
                 }
@@ -482,7 +526,7 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const char* _cmd)
                     accepted = context->MoveL(pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
                 } else if (argNum == 7)
                 {
-                    context->SetJointSpeed(speed);
+                    context->SetJointSpeedPercent(speed);
                     accepted = context->MoveL(pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
                 }
 
@@ -516,7 +560,7 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const char* _cmd)
                                               joints[3], joints[4], joints[5]);
                 } else if (argNum == 7)
                 {
-                    context->SetJointSpeed(speed);
+                    context->SetJointSpeedPercent(speed);
                     accepted = context->MoveJ(joints[0], joints[1], joints[2],
                                               joints[3], joints[4], joints[5]);
                 }
@@ -544,7 +588,7 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const char* _cmd)
                     accepted = context->MoveL(pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
                 } else if (argNum == 7)
                 {
-                    context->SetJointSpeed(speed);
+                    context->SetJointSpeedPercent(speed);
                     accepted = context->MoveL(pose[0], pose[1], pose[2], pose[3], pose[4], pose[5]);
                 }
                 if (accepted)

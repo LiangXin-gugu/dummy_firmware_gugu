@@ -52,6 +52,17 @@ void OnUsbAsciiCmd(const char* _cmd, size_t _len, StreamSink &_responseChannel)
                     dummy.currentPose6D.X, dummy.currentPose6D.Y,
                     dummy.currentPose6D.Z, dummy.currentPose6D.A,
                     dummy.currentPose6D.B, dummy.currentPose6D.C);
+        } else if (strstr(_cmd, "GET_SPEED_CFG") != nullptr)
+        {
+            Respond(_responseChannel, "ok %.2f %.3f",
+                    dummy.GetJointSpeedPercent(), dummy.GetJointSpeedFactor());
+        } else if (strstr(_cmd, "GET_ACC_CFG") != nullptr)
+        {
+            auto bases = dummy.GetJointAccelerationBases();
+            Respond(_responseChannel, "ok %.2f %.2f %.2f %.2f %.2f %.2f %.2f",
+                    dummy.GetJointAccelerationPercent(),
+                    bases.a[0], bases.a[1], bases.a[2],
+                    bases.a[3], bases.a[4], bases.a[5]);
         } else if (strstr(_cmd, "SET_DCE_KP") != nullptr)
         {
             uint32_t kp;
@@ -105,6 +116,32 @@ void OnUsbAsciiCmd(const char* _cmd, size_t _len, StreamSink &_responseChannel)
             sscanf(_cmd, "#CMDMODE %lu", &mode);
             dummy.SetCommandMode(mode);
             Respond(_responseChannel, "ok Set command mode to [%lu]", mode);
+        } else if (strstr(_cmd, "SET_SPEED_FACTOR") != nullptr)
+        {
+            float unit;
+            sscanf(_cmd, "#SET_SPEED_FACTOR %f", &unit);
+            dummy.SetJointSpeedFactor(unit);
+            Respond(_responseChannel, "ok SET SPEED_UNIT_TO_RPS [%.3f]", unit);
+        } else if (strstr(_cmd, "SET_ACC_Percent") != nullptr)
+        {
+            float factor;
+            sscanf(_cmd, "#SET_ACC_Percent %f", &factor);
+            dummy.SetJointAccelerationPercent(factor);
+            dummy.ApplyJointAcceleration();
+            Respond(_responseChannel, "ok SET ACC_Percent [%.2f]", factor);
+        } else if (strstr(_cmd, "SET_ACC_BASE") != nullptr)
+        {
+            float b[6];
+            int n = sscanf(_cmd, "#SET_ACC_BASE %f %f %f %f %f %f",
+                           &b[0], &b[1], &b[2], &b[3], &b[4], &b[5]);
+            if (n == 6)
+            {
+                dummy.SetJointAccelerationBases(b[0], b[1], b[2], b[3], b[4], b[5]);
+                dummy.ApplyJointAcceleration();
+                Respond(_responseChannel, "ok SET ACC_BASE [%.2f %.2f %.2f %.2f %.2f %.2f]",
+                        b[0], b[1], b[2], b[3], b[4], b[5]);
+            } else
+                Respond(_responseChannel, "error SET_ACC_BASE needs 6 args, got %d", n);
         } else
             Respond(_responseChannel, "ok");
     } else if (_cmd[0] == '>' || _cmd[0] == '@' || _cmd[0] == '&')
