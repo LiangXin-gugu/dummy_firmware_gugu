@@ -70,6 +70,18 @@ void DummyRobot::MoveJoints(DOF6Kinematic::Joint6D_t _joints)
 }
 
 
+void DummyRobot::MoveJointsTrajectory(DOF6Kinematic::Joint6D_t _joints, DOF6Kinematic::Joint6D_t _jointVels)
+{
+    // Feed-forward ONE (pos, vel) waypoint to each motor via CAN 0x08.
+    // Position needs the initPose offset (like MoveJoints); velocity is a pure rate, no offset.
+    for (int j = 1; j <= 6; j++)
+    {
+        motorJ[j]->SetAngleWithTrajectoryVelocity(_joints.a[j - 1] - initPose.a[j - 1],
+                                                  _jointVels.a[j - 1]);
+    }
+}
+
+
 bool DummyRobot::MoveJ(float _j1, float _j2, float _j3, float _j4, float _j5, float _j6)
 {
     DOF6Kinematic::Joint6D_t targetJointsTmp(_j1, _j2, _j3, _j4, _j5, _j6);
@@ -482,7 +494,6 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const char* _cmd)
     switch (context->commandMode)
     {
         case COMMAND_TARGET_POINT_SEQUENTIAL:
-        case COMMAND_CONTINUES_TRAJECTORY:
             if (_cmd[0] == '>' || _cmd[0] == '&')
             {
                 float joints[6];
@@ -540,6 +551,52 @@ uint32_t DummyRobot::CommandHandler::ParseCommand(const char* _cmd)
                 }
             }
 
+            break;
+
+        case COMMAND_CONTINUES_TRAJECTORY:
+            // Non-blocking & event-driven: each command carries ONE (pos, vel) waypoint and is
+            // forwarded to the motors exactly once via CAN 0x08. The 200Hz FixUpdate loop must NOT
+            // resend it -- the motor's trajectory tracker only reacts to a CHANGED goal, so
+            // resending an identical setpoint does nothing but waste CAN bandwidth.
+            // The host should stream progressive waypoints at a period < 200ms (the motor-side
+            // trajectory timeout); otherwise the motor auto-decelerates to a safe stop.
+            // Format: >p1,p2,p3,p4,p5,p6,v1,v2,v3,v4,v5,v6   (6x joint deg, then 6x joint deg/s)
+            if (_cmd[0] == '>' || _cmd[0] == '&')
+            {
+                float joints[6];
+                float vels[6];
+                argNum = sscanf(_cmd + 1, "%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f",
+                                joints, joints + 1, joints + 2, joints + 3, joints + 4, joints + 5,
+                                vels, vels + 1, vels + 2, vels + 3, vels + 4, vels + 5);
+                if (argNum == 12)
+                {
+                    bool valid = true;
+                    for (int j = 1; j <= 6; j++)
+                    {
+                        if (joints[j - 1] > context->motorJ[j]->angleLimitMax ||
+                            joints[j - 1] < context->motorJ[j]->angleLimitMin)
+                            valid = false;
+                    }
+
+                    if (valid)
+                    {
+                        for (int j = 0; j < 6; j++)
+                        {
+                            context->targetJoints.a[j] = joints[j];
+                            context->targetJointVels.a[j] = vels[j];
+                        }
+                        context->MoveJointsTrajectory(context->targetJoints, context->targetJointVels);
+                        Respond(*usbStreamOutputPtr, "ok");
+                    } else
+                    {
+                        Respond(*usbStreamOutputPtr, "error trajectory joint limit exceeded");
+                    }
+                } else
+                {
+                    Respond(*usbStreamOutputPtr,
+                            "error trajectory needs 12 args (6 pos + 6 vel), got %d", argNum);
+                }
+            }
             break;
 
         case COMMAND_TARGET_POINT_INTERRUPTABLE:

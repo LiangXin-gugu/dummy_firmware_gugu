@@ -117,6 +117,7 @@ public:
 
     DOF6Kinematic::Joint6D_t currentJoints = REST_POSE;
     DOF6Kinematic::Joint6D_t targetJoints = REST_POSE;
+    DOF6Kinematic::Joint6D_t targetJointVels = {0, 0, 0, 0, 0, 0}; // joint-space velocity feed-forward (deg/s), for CONTINUES_TRAJECTORY
     DOF6Kinematic::Joint6D_t initPose = REST_POSE;
     DOF6Kinematic::Pose6D_t currentPose6D = {};
     volatile uint8_t jointsStateFlag = 0b00000000;
@@ -129,6 +130,7 @@ public:
     bool MoveJ(float _j1, float _j2, float _j3, float _j4, float _j5, float _j6);
     bool MoveL(float _x, float _y, float _z, float _a, float _b, float _c);
     void MoveJoints(DOF6Kinematic::Joint6D_t _joints);
+    void MoveJointsTrajectory(DOF6Kinematic::Joint6D_t _joints, DOF6Kinematic::Joint6D_t _jointVels);
     void SetJointSpeedPercent(float _speed);
     void SetJointSpeedFactor(float _unit);
     void SetJointAccelerationPercent(float _acc);

@@ -31,8 +31,18 @@ void ThreadControlLoopFixUpdate(void* argument)
             {
                 case DummyRobot::COMMAND_TARGET_POINT_SEQUENTIAL:
                 case DummyRobot::COMMAND_TARGET_POINT_INTERRUPTABLE:
-                case DummyRobot::COMMAND_CONTINUES_TRAJECTORY:
                     dummy.MoveJoints(dummy.targetJoints);
+                    dummy.UpdateJointPose6D();
+                    break;
+                case DummyRobot::COMMAND_CONTINUES_TRAJECTORY:
+                    // 0x08 waypoints are sent event-driven by ParseCommand as each host command
+                    // arrives; do NOT resend them here (the motor's trajectory tracker ignores an
+                    // unchanged setpoint, resending only wastes CAN bandwidth).
+                    // Still poll motor angles every tick: the 0x08 ACK refreshes currentJoints only
+                    // at the host waypoint rate, so this broadcast 0x23 keeps currentJoints /
+                    // currentPose6D 200Hz-fresh for OLED & GETJPOS/GETLPOS even when the host
+                    // stream is slower or pauses. The motor's 0x23 handler is mode-independent.
+                    dummy.UpdateJointAngles();
                     dummy.UpdateJointPose6D();
                     break;
                 case DummyRobot::COMMAND_MOTOR_TUNING:

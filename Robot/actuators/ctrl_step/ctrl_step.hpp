@@ -31,6 +31,7 @@ public:
 
     void SetAngle(float _angle);
     void SetAngleWithVelocityLimit(float _angle, float _vel);
+    void SetAngleWithTrajectoryVelocity(float _angle, float _angleVel); // joint deg + deg/s (signed feed-forward)
     // CAN Command
     void SetEnable(bool _enable);
     void SetEnableTemp(bool _enable);
@@ -39,6 +40,7 @@ public:
     void SetVelocitySetPoint(float _val);
     void SetPositionSetPoint(float _val);
     void SetPositionWithVelocityLimit(float _pos, float _vel);
+    void SetTrajectorySetPoint(float _pos, float _vel); // 0x08: motor-circle pos + motor r/s vel (signed)
     void SetNodeID(uint32_t _id);
     void SetCurrentLimit(float _val);
     void SetVelocityLimit(float _val);

@@ -122,6 +122,23 @@ void CtrlStepMotor::SetPositionWithVelocityLimit(float _pos, float _vel)
 }
 
 
+void CtrlStepMotor::SetTrajectorySetPoint(float _pos, float _vel)
+{
+    uint8_t mode = 0x08;
+    txHeader.StdId = nodeID << 7 | mode;
+
+    // Float to Bytes: [0..3]=position(motor-circle), [4..7]=velocity(motor-circle/s, signed)
+    auto* b = (unsigned char*) &_pos;
+    for (int i = 0; i < 4; i++)
+        canBuf[i] = *(b + i);
+    b = (unsigned char*) &_vel;
+    for (int i = 4; i < 8; i++)
+        canBuf[i] = *(b + i - 4);
+
+    CanSendMessage(get_can_ctx(hcan), canBuf, &txHeader);
+}
+
+
 void CtrlStepMotor::SetNodeID(uint32_t _id)
 {
     uint8_t mode = 0x11;
@@ -261,6 +278,21 @@ void CtrlStepMotor::SetAngleWithVelocityLimit(float _angle, float _vel)
     _angle = inverseDirection ? -_angle : _angle;
     float stepMotorCnt = _angle / 360.0f * (float) reduction;
     SetPositionWithVelocityLimit(stepMotorCnt, _vel);
+}
+
+
+void CtrlStepMotor::SetAngleWithTrajectoryVelocity(float _angle, float _angleVel)
+{
+    // Trajectory feed-forward velocity is SIGNED: both position & velocity follow inverseDirection.
+    // (Key difference from SetAngleWithVelocityLimit, whose _vel is an unsigned magnitude limit.)
+    if (inverseDirection)
+    {
+        _angle = -_angle;
+        _angleVel = -_angleVel;
+    }
+    float stepMotorCnt = _angle / 360.0f * (float) reduction;   // joint deg -> motor circle
+    float motorRps = _angleVel / 360.0f * (float) reduction;    // joint deg/s -> motor circle/s
+    SetTrajectorySetPoint(stepMotorCnt, motorRps);
 }
 
 
