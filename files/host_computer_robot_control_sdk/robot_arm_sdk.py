@@ -393,6 +393,27 @@ class RobotArmSDK:
                                  timeout=timeout)
         return [float(x) for x in line.split()[1:8]]
 
+    def get_motor_currents(self, timeout=None):
+        """#GET_CURRENT 读取 6 个电机的 FOC 电流（安培），返回 [i1..i6]。
+
+        固件侧在 200Hz 控制线程里以 ~50Hz 广播 CAN 0x21 请求，本命令只
+        读缓存，无阻塞、无 CAN 增量。电机刚上电/重启后需 ~20ms 才会刷
+        新非零值。应答格式："ok %.3f %.3f %.3f %.3f %.3f %.3f"。
+        """
+        line = self.send_command("#GET_CURRENT", pattern=_RESP_6FLOAT, timeout=timeout)
+        return self._parse_6_floats(line)
+
+    def get_motor_temperatures(self, timeout=None):
+        """#GET_TEMP 读取 6 个电机的芯片温度（摄氏度），返回 [t1..t6]。
+
+        固件侧在 200Hz 控制线程里以 ~1Hz 广播 CAN 0x25 请求，并周期性
+        广播 0x7d 让电机重新开启 enableTempWatch（电机侧每次上电会强制
+        清零）。因此首次上电或电机重启后，需 1~2s 才能读到非零温度；
+        之前返回的将是 0.0。应答格式："ok %.1f %.1f %.1f %.1f %.1f %.1f"。
+        """
+        line = self.send_command("#GET_TEMP", pattern=_RESP_6FLOAT, timeout=timeout)
+        return self._parse_6_floats(line)
+
     # ------------------------------------------------------------------
     # 参数类命令（'#'）
     # ------------------------------------------------------------------

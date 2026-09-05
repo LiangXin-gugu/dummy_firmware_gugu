@@ -63,6 +63,24 @@ void OnUsbAsciiCmd(const char* _cmd, size_t _len, StreamSink &_responseChannel)
                     dummy.GetJointAccelerationPercent(),
                     bases.a[0], bases.a[1], bases.a[2],
                     bases.a[3], bases.a[4], bases.a[5]);
+        } else if (strstr(_cmd, "GET_CURRENT") != nullptr)
+        {
+            // Reads the cached motor currents (amps). Cache is refreshed at ~50Hz by
+            // the FixUpdate thread broadcasting CAN 0x21; no blocking, no heap alloc.
+            auto currents = dummy.GetMotorCurrents();
+            Respond(_responseChannel, "ok %.3f %.3f %.3f %.3f %.3f %.3f",
+                    currents.a[0], currents.a[1], currents.a[2],
+                    currents.a[3], currents.a[4], currents.a[5]);
+        } else if (strstr(_cmd, "GET_TEMP") != nullptr)
+        {
+            // Reads the cached motor chip temperatures (deg C). Cache is refreshed at ~1Hz
+            // (matching the motor-side sampling rate) by the FixUpdate thread broadcasting
+            // CAN 0x25. Requires enableTempWatch=true on motor side, which DummyRobot::Init
+            // broadcasts via 0x7d at boot.
+            auto temps = dummy.GetMotorTemperatures();
+            Respond(_responseChannel, "ok %.1f %.1f %.1f %.1f %.1f %.1f",
+                    temps.a[0], temps.a[1], temps.a[2],
+                    temps.a[3], temps.a[4], temps.a[5]);
         } else if (strstr(_cmd, "SET_DCE_KP") != nullptr)
         {
             uint32_t kp;

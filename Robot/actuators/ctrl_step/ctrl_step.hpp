@@ -24,7 +24,13 @@ public:
     float angle = 0;
     float angleLimitMax;
     float angleLimitMin;
-    uint32_t temperature = 0.0;
+    // FOC current in amps; refreshed asynchronously by the CAN 0x21 RX handler.
+    // Trigger a broadcast/single request via UpdateCurrent().
+    float current = 0;
+    // Motor chip temperature in deg C; refreshed asynchronously by the CAN 0x25 RX handler.
+    // The motor side only samples ~1Hz and requires 0x7d (SetEnableTemp(true)) first,
+    // otherwise this stays 0. Trigger a request via UpdateTemp().
+    float temperature = 0;
     bool inverseDirection;
     uint8_t reduction;
     State state = STOP;
@@ -53,9 +59,15 @@ public:
     void SetEnableOnBoot(bool _enable);
     void SetEnableStallProtect(bool _enable);
     void Reboot();
-    uint32_t GetTemp();
+    // Pure getter: returns the cached temperature (see field comment for update semantics).
+    // Retained for fibre protocol backwards compatibility; use UpdateTemp() to request a refresh.
+    float GetTemp();
     void EraseConfigs();
 
+    // Broadcast (nodeID==0) or single-node request; result is delivered asynchronously
+    // via OnCanMessage() and stored into `current` / `temperature`.
+    void UpdateCurrent();
+    void UpdateTemp();
     void UpdateAngle();
     void UpdateAngleCallback(float _pos, bool _isFinished);
 
@@ -65,8 +77,12 @@ public:
     {
         return make_protocol_member_list(
             make_protocol_ro_property("angle", &angle),
+            make_protocol_ro_property("current", &current),
+            make_protocol_ro_property("temperature", &temperature),
             make_protocol_function("reboot", *this, &CtrlStepMotor::Reboot),
             make_protocol_function("get_temperature", *this, &CtrlStepMotor::GetTemp),
+            make_protocol_function("update_current", *this, &CtrlStepMotor::UpdateCurrent),
+            make_protocol_function("update_temp", *this, &CtrlStepMotor::UpdateTemp),
             make_protocol_function("set_enable_temperature", *this, &CtrlStepMotor::SetEnableTemp, "enable"),
             make_protocol_function("erase_configs", *this, &CtrlStepMotor::EraseConfigs),
             make_protocol_function("set_enable", *this, &CtrlStepMotor::SetEnable, "enable"),

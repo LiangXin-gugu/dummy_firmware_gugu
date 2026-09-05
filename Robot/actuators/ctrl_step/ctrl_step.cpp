@@ -247,13 +247,30 @@ void CtrlStepMotor::Reboot()
     CanSendMessage(get_can_ctx(hcan), canBuf, &txHeader);
 }
 
-uint32_t CtrlStepMotor::GetTemp()
+float CtrlStepMotor::GetTemp()
+{
+    // Pure cache read. The 200Hz FixUpdate loop already broadcasts 0x25 at ~1Hz, which matches
+    // the motor-side sampling rate, so the cache is never more than ~1s stale. Callers that want
+    // to force an immediate refresh can call UpdateTemp() and read the field on the next tick.
+    return temperature;
+}
+
+
+void CtrlStepMotor::UpdateCurrent()
+{
+    uint8_t mode = 0x21;
+    txHeader.StdId = nodeID << 7 | mode;
+
+    CanSendMessage(get_can_ctx(hcan), canBuf, &txHeader);
+}
+
+
+void CtrlStepMotor::UpdateTemp()
 {
     uint8_t mode = 0x25;
     txHeader.StdId = nodeID << 7 | mode;
 
     CanSendMessage(get_can_ctx(hcan), canBuf, &txHeader);
-    return temperature;
 }
 
 void CtrlStepMotor::EraseConfigs()

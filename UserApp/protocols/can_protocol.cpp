@@ -23,13 +23,22 @@ void OnCanMessage(CAN_context* canCtx, CAN_RxHeaderTypeDef* rxHeader, uint8_t* d
         uint8_t cmd = rxHeader->StdId & 0x7F; // 4Bits ID & 7Bits Msg
 
         /*----------------------- ↓ Add Your CAN1 Packet Protocol Here ↓ ------------------------*/
+        // Guard: motorJ[] is sized 7 (index 0..6, motorJ[0] is the broadcast pseudo-node).
+        // Any id >= 7 (e.g. the hand at id=7) or unexpected frames must NOT dereference motorJ[id].
+        const bool validMotorId = (id >= 1 && id <= 6);
         switch (cmd)
         {
-            case 0x23:
-                dummy.motorJ[id]->UpdateAngleCallback(*(float*) (data), data[4]);
+            case 0x21: // Get Current ACK: [0..3]=float amps, [4]=finished flag
+                if (validMotorId)
+                    memcpy(&dummy.motorJ[id]->current, data, sizeof(float));
                 break;
-            case 0x25:
-                 memcpy(&dummy.motorJ[id]->temperature, data, sizeof(uint32_t));//(uint32_t) (data);
+            case 0x23:
+                if (validMotorId)
+                    dummy.motorJ[id]->UpdateAngleCallback(*(float*) (data), data[4]);
+                break;
+            case 0x25: // Get Temperature ACK: [0..3]=float deg C
+                if (validMotorId)
+                    memcpy(&dummy.motorJ[id]->temperature, data, sizeof(float));
                 break;
             default:
                 break;

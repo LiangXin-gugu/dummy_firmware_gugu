@@ -50,6 +50,9 @@ void DummyRobot::Init()
     SetCommandMode(DEFAULT_COMMAND_MODE);
     SetJointSpeedPercent(DEFAULT_JOINT_SPEED);
     ApplyJointAcceleration();
+    // Motors force enableTempWatch=false on every boot, so 0x25 would return 0 forever unless
+    // we ask them to start sampling. Idempotent broadcast; safe to send once at init.
+    EnableMotorTempWatch(true);
 }
 
 
@@ -192,6 +195,24 @@ void DummyRobot::UpdateJointAnglesCallback()
 }
 
 
+void DummyRobot::UpdateAllCurrent()
+{
+    motorJ[ALL]->UpdateCurrent();
+}
+
+
+void DummyRobot::UpdateAllTemp()
+{
+    motorJ[ALL]->UpdateTemp();
+}
+
+
+void DummyRobot::EnableMotorTempWatch(bool _enable)
+{
+    motorJ[ALL]->SetEnableTemp(_enable);
+}
+
+
 void DummyRobot::SetJointSpeedPercent(float _speed)
 {
     if (_speed < 0)_speed = 0;
@@ -251,6 +272,22 @@ float DummyRobot::GetJointAccelerationPercent() const
 DOF6Kinematic::Joint6D_t DummyRobot::GetJointAccelerationBases() const
 {
     return jointAccelerationBases;
+}
+
+DOF6Kinematic::Joint6D_t DummyRobot::GetMotorCurrents() const
+{
+    DOF6Kinematic::Joint6D_t snapshot{};
+    for (int i = 1; i <= 6; i++)
+        snapshot.a[i - 1] = motorJ[i]->current;
+    return snapshot;
+}
+
+DOF6Kinematic::Joint6D_t DummyRobot::GetMotorTemperatures() const
+{
+    DOF6Kinematic::Joint6D_t snapshot{};
+    for (int i = 1; i <= 6; i++)
+        snapshot.a[i - 1] = motorJ[i]->temperature;
+    return snapshot;
 }
 
 

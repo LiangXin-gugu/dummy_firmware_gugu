@@ -19,10 +19,35 @@ DummyRobot dummy(&hcan1);
 osThreadId_t controlLoopFixUpdateHandle;
 void ThreadControlLoopFixUpdate(void* argument)
 {
+    // Telemetry polling dividers, relative to the 200Hz TIM7 tick.
+    // Current is a fast-changing diagnostic value: 50Hz is plenty and cheap on the CAN bus.
+    // Temperature on the motor side is only sampled ~1Hz and requires 0x7d enableTempWatch
+    // (already sent from DummyRobot::Init), so polling faster than 1Hz would just re-fetch
+    // the same value. Kept independent of IsEnabled()/commandMode so telemetry works even
+    // when the arm is disabled.
+    constexpr uint32_t CURRENT_POLL_DIV = 4;    // 200Hz / 4   = 50Hz
+    constexpr uint32_t TEMP_POLL_DIV    = 200;  // 200Hz / 200 = 1Hz
+    uint32_t tick = 0;
+
     for (;;)
     {
         // Suspended here until got Notification.
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+        // Background telemetry broadcast (non-blocking; responses land in OnCanMessage()
+        // and refresh motorJ[i]->current / ->temperature caches read by GET_CURRENT/GET_TEMP).
+        ++tick;
+        if ((tick % CURRENT_POLL_DIV) == 0)
+            dummy.UpdateAllCurrent();
+        if ((tick % TEMP_POLL_DIV) == 0)
+        {
+            // Re-arm enableTempWatch on every temp poll: motor firmware force-clears it on
+            // every motor boot and the 0x7d handler is idempotent (just sets a bool, no EEPROM
+            // commit). Without this, any motor that resets after ref-boot (e.g. `#REBOOT n`)
+            // would never resume temperature sampling. Costs 1 extra CAN frame per second.
+            dummy.EnableMotorTempWatch(true);
+            dummy.UpdateAllTemp();
+        }
 
         if (dummy.IsEnabled())
         {

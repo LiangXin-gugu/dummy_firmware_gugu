@@ -140,8 +140,18 @@ public:
     float GetJointSpeedFactor() const;
     float GetJointAccelerationPercent() const;
     DOF6Kinematic::Joint6D_t GetJointAccelerationBases() const;
+    // Snapshot getters for motor-side telemetry (values are refreshed asynchronously by
+    // the CAN RX handler; the 200Hz FixUpdate loop drives the periodic broadcast).
+    DOF6Kinematic::Joint6D_t GetMotorCurrents() const;
+    DOF6Kinematic::Joint6D_t GetMotorTemperatures() const;
     void UpdateJointAngles();
     void UpdateJointAnglesCallback();
+    // Broadcast 0x21 / 0x25 to all motors (nodeID==0). Non-blocking: responses arrive via
+    // OnCanMessage() and refresh motorJ[i]->current / ->temperature.
+    void UpdateAllCurrent();
+    void UpdateAllTemp();
+    // Broadcast 0x7d so motors start sampling chip temperature (they default to disabled on boot).
+    void EnableMotorTempWatch(bool _enable);
     void UpdateJointPose6D();
     void Reboot();
     void SetEnable(bool _enable);
