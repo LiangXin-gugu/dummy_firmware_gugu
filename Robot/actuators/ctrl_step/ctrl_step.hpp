@@ -76,13 +76,10 @@ public:
     auto MakeProtocolDefinitions()
     {
         return make_protocol_member_list(
+            // Note: Current/temperature data uses ASCII. Do not add it to the Fibre list, as this may enlarge the protocol tree and overflow the commTask stack.
             make_protocol_ro_property("angle", &angle),
-            make_protocol_ro_property("current", &current),
-            make_protocol_ro_property("temperature", &temperature),
             make_protocol_function("reboot", *this, &CtrlStepMotor::Reboot),
             make_protocol_function("get_temperature", *this, &CtrlStepMotor::GetTemp),
-            make_protocol_function("update_current", *this, &CtrlStepMotor::UpdateCurrent),
-            make_protocol_function("update_temp", *this, &CtrlStepMotor::UpdateTemp),
             make_protocol_function("set_enable_temperature", *this, &CtrlStepMotor::SetEnableTemp, "enable"),
             make_protocol_function("erase_configs", *this, &CtrlStepMotor::EraseConfigs),
             make_protocol_function("set_enable", *this, &CtrlStepMotor::SetEnable, "enable"),
