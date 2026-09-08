@@ -3,6 +3,42 @@
 
 extern DummyRobot dummy;
 
+// Format a float as fixed-point with `decimals` fractional digits (1, 2 or 3) using ONLY
+// integer printf. This deliberately avoids newlib's "%f" path (dtoa -> _Balloc ->
+// malloc/free), which is NOT thread-safe here (no __malloc_lock, single shared _reent):
+// a high-rate GETJPOS/GETLPOS/GET_CURRENT/GET_TEMP Respond in the USB task races with the
+// move_j sscanf("%f") consumer thread and corrupts the heap -> HardFault -> whole-MCU hang
+// (OLED freeze + host "Write timeout"). Output is byte-identical to the matching "%.*f" so
+// the host SDK regexes still match.
+static void FormatFixedN(float value, char* out, size_t outSize, int decimals)
+{
+    int negative = (value < 0.0f);
+    float magnitude = negative ? -value : value;
+    const char* sign = negative ? "-" : "";
+    switch (decimals)
+    {
+        case 1:
+        {
+            long scaled = (long) (magnitude * 10.0f + 0.5f);
+            snprintf(out, outSize, "%s%ld.%ld", sign, scaled / 10, scaled % 10);
+            break;
+        }
+        case 3:
+        {
+            long scaled = (long) (magnitude * 1000.0f + 0.5f);
+            snprintf(out, outSize, "%s%ld.%03ld", sign, scaled / 1000, scaled % 1000);
+            break;
+        }
+        case 2:
+        default:
+        {
+            long scaled = (long) (magnitude * 100.0f + 0.5f);
+            snprintf(out, outSize, "%s%ld.%02ld", sign, scaled / 100, scaled % 100);
+            break;
+        }
+    }
+}
+
 void OnUsbAsciiCmd(const char* _cmd, size_t _len, StreamSink &_responseChannel)
 {
     uint8_t  i;
@@ -41,17 +77,24 @@ void OnUsbAsciiCmd(const char* _cmd, size_t _len, StreamSink &_responseChannel)
     {
         if (strstr(_cmd, "GETJPOS") != nullptr)
         {
-            Respond(_responseChannel, "ok %.2f %.2f %.2f %.2f %.2f %.2f",
-                    dummy.currentJoints.a[0], dummy.currentJoints.a[1],
-                    dummy.currentJoints.a[2], dummy.currentJoints.a[3],
-                    dummy.currentJoints.a[4], dummy.currentJoints.a[5]);
+            // Fixed-point integer formatting (2 decimals), no dtoa/malloc -- see FormatFixedN.
+            char s[6][16];
+            for (int k = 0; k < 6; k++)
+                FormatFixedN(dummy.currentJoints.a[k], s[k], sizeof(s[k]), 2);
+            Respond(_responseChannel, "ok %s %s %s %s %s %s",
+                    s[0], s[1], s[2], s[3], s[4], s[5]);
         } else if (strstr(_cmd, "GETLPOS") != nullptr)
         {
             dummy.UpdateJointPose6D();
-            Respond(_responseChannel, "ok %.2f %.2f %.2f %.2f %.2f %.2f",
-                    dummy.currentPose6D.X, dummy.currentPose6D.Y,
-                    dummy.currentPose6D.Z, dummy.currentPose6D.A,
-                    dummy.currentPose6D.B, dummy.currentPose6D.C);
+            // Fixed-point integer formatting (2 decimals), no dtoa/malloc -- see FormatFixedN.
+            const float pose[6] = {dummy.currentPose6D.X, dummy.currentPose6D.Y,
+                                   dummy.currentPose6D.Z, dummy.currentPose6D.A,
+                                   dummy.currentPose6D.B, dummy.currentPose6D.C};
+            char s[6][16];
+            for (int k = 0; k < 6; k++)
+                FormatFixedN(pose[k], s[k], sizeof(s[k]), 2);
+            Respond(_responseChannel, "ok %s %s %s %s %s %s",
+                    s[0], s[1], s[2], s[3], s[4], s[5]);
         } else if (strstr(_cmd, "GET_SPEED_CFG") != nullptr)
         {
             Respond(_responseChannel, "ok %.2f %.3f",
@@ -66,21 +109,27 @@ void OnUsbAsciiCmd(const char* _cmd, size_t _len, StreamSink &_responseChannel)
         } else if (strstr(_cmd, "GET_CURRENT") != nullptr)
         {
             // Reads the cached motor currents (amps). Cache is refreshed at ~50Hz by
-            // the FixUpdate thread broadcasting CAN 0x21; no blocking, no heap alloc.
+            // the FixUpdate thread broadcasting CAN 0x21; no blocking.
+            // Fixed-point integer formatting (3 decimals), no dtoa/malloc -- see FormatFixedN.
             auto currents = dummy.GetMotorCurrents();
-            Respond(_responseChannel, "ok %.3f %.3f %.3f %.3f %.3f %.3f",
-                    currents.a[0], currents.a[1], currents.a[2],
-                    currents.a[3], currents.a[4], currents.a[5]);
+            char s[6][16];
+            for (int k = 0; k < 6; k++)
+                FormatFixedN(currents.a[k], s[k], sizeof(s[k]), 3);
+            Respond(_responseChannel, "ok %s %s %s %s %s %s",
+                    s[0], s[1], s[2], s[3], s[4], s[5]);
         } else if (strstr(_cmd, "GET_TEMP") != nullptr)
         {
             // Reads the cached motor chip temperatures (deg C). Cache is refreshed at ~1Hz
             // (matching the motor-side sampling rate) by the FixUpdate thread broadcasting
             // CAN 0x25. Requires enableTempWatch=true on motor side, which DummyRobot::Init
             // broadcasts via 0x7d at boot.
+            // Fixed-point integer formatting (1 decimal), no dtoa/malloc -- see FormatFixedN.
             auto temps = dummy.GetMotorTemperatures();
-            Respond(_responseChannel, "ok %.1f %.1f %.1f %.1f %.1f %.1f",
-                    temps.a[0], temps.a[1], temps.a[2],
-                    temps.a[3], temps.a[4], temps.a[5]);
+            char s[6][16];
+            for (int k = 0; k < 6; k++)
+                FormatFixedN(temps.a[k], s[k], sizeof(s[k]), 1);
+            Respond(_responseChannel, "ok %s %s %s %s %s %s",
+                    s[0], s[1], s[2], s[3], s[4], s[5]);
         } else if (strstr(_cmd, "SET_DCE_KP") != nullptr)
         {
             uint32_t kp;
@@ -210,17 +259,24 @@ void OnUart4AsciiCmd(const char* _cmd, size_t _len, StreamSink &_responseChannel
     {
         if (strstr(_cmd, "GETJPOS") != nullptr)
         {
-            Respond(_responseChannel, "ok %.2f %.2f %.2f %.2f %.2f %.2f",
-                    dummy.currentJoints.a[0], dummy.currentJoints.a[1],
-                    dummy.currentJoints.a[2], dummy.currentJoints.a[3],
-                    dummy.currentJoints.a[4], dummy.currentJoints.a[5]);
+            // Fixed-point integer formatting (2 decimals), no dtoa/malloc -- see FormatFixedN.
+            char s[6][16];
+            for (int k = 0; k < 6; k++)
+                FormatFixedN(dummy.currentJoints.a[k], s[k], sizeof(s[k]), 2);
+            Respond(_responseChannel, "ok %s %s %s %s %s %s",
+                    s[0], s[1], s[2], s[3], s[4], s[5]);
         } else if (strstr(_cmd, "GETLPOS") != nullptr)
         {
             dummy.UpdateJointPose6D();
-            Respond(_responseChannel, "ok %.2f %.2f %.2f %.2f %.2f %.2f",
-                    dummy.currentPose6D.X, dummy.currentPose6D.Y,
-                    dummy.currentPose6D.Z, dummy.currentPose6D.A,
-                    dummy.currentPose6D.B, dummy.currentPose6D.C);
+            // Fixed-point integer formatting (2 decimals), no dtoa/malloc -- see FormatFixedN.
+            const float pose[6] = {dummy.currentPose6D.X, dummy.currentPose6D.Y,
+                                   dummy.currentPose6D.Z, dummy.currentPose6D.A,
+                                   dummy.currentPose6D.B, dummy.currentPose6D.C};
+            char s[6][16];
+            for (int k = 0; k < 6; k++)
+                FormatFixedN(pose[k], s[k], sizeof(s[k]), 2);
+            Respond(_responseChannel, "ok %s %s %s %s %s %s",
+                    s[0], s[1], s[2], s[3], s[4], s[5]);
         } else if (strstr(_cmd, "CMDMODE") != nullptr)
         {
             uint32_t mode;

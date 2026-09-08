@@ -2,12 +2,13 @@
 """
 正弦轨迹测试脚本
 功能:
-  1. 生成关节1正弦运动轨迹 (幅值180°, 关节2~6保持0)
+  1. 生成 6 关节正弦运动轨迹 (每关节可独立设置周期与幅值, 默认仅关节1运动)
   2. 使用 viser 可视化轨迹
   3. 通过 RobotArmSDK.move_j 下发轨迹给实体机械臂
 
 用法:
   python test_sine_trajectory.py --Ts 2.0 --freq 50 --port /dev/ttyACM0
+  python test_sine_trajectory.py --Ts 2 2 2 2 2 2 --amplitude 30 0 0 0 0 0   # 每关节独立指定
   python test_sine_trajectory.py --Ts 2.0 --freq 50 --vis_only          # 仅可视化
   python test_sine_trajectory.py --plot_log trajectory_logs/xxx.npz    # 离线绘制已保存日志
 
@@ -39,30 +40,50 @@ URDF_PATH = PROJECT_ROOT / "robot_assets" / "dummy" / "urdf" / "dummy.urdf"
 # ======================================================================
 # 1. 轨迹生成
 # ======================================================================
+def _broadcast6(values, name: str) -> np.ndarray:
+    """将标量/单元素序列广播为 6 维浮点数组; 已是 6 维则原样返回。
+
+    用于 --Ts / --amplitude 等"每关节一个值"的参数: 允许只传 1 个值
+    (应用到全部 6 个关节) 或恰好 6 个值 (逐个关节指定)。
+    """
+    arr = np.asarray(values, dtype=float).ravel()
+    if arr.size == 1:
+        arr = np.repeat(arr, 6)
+    if arr.size != 6:
+        raise ValueError(
+            f"{name} 需为 1 个或 6 个值, 当前收到 {arr.size} 个: "
+            f"{np.asarray(values).tolist()}")
+    return arr
+
+
 def generate_sine_trajectory(
-    Ts: float,
+    Ts,
     freq: float,
-    amplitude_deg: float = 170.0,
+    amplitude_deg=(90.0, 0.0, 0.0, 0.0, 0.0, 0.0),
     base_pose_deg: list[float] | None = None,
 ) -> dict:
     """
-    生成关节1的正弦运动轨迹，其余关节保持基准位姿。
-    正弦偏移叠加在基准位姿之上。
+    生成 6 个关节的正弦运动轨迹, 每个关节可独立设置周期与幅值。
+    正弦偏移叠加在基准位姿之上; 幅值为 0 的关节保持基准位姿不动。
 
-    运动方程 (角度制):
-        q1(t)   =  base_1 + A·sin(ω·t)
-        q̇1(t)  =  A·ω·cos(ω·t)
-        q̈1(t)  = -A·ω²·sin(ω·t)
+    运动方程 (角度制, 第 j 个关节):
+        qj(t)    =  base_j + Aj·sin(ωj·t)
+        dqj(t)   =  Aj·ωj·cos(ωj·t)          (速度)
+        ddqj(t)  = -Aj·ωj²·sin(ωj·t)         (加速度)
 
-    其中 1/4 周期 Ts → 完整周期 T = 4·Ts, ω = 2π/T = π/(2·Ts)
+    其中各关节 1/4 周期 Ts_j → 完整周期 T_j = 4·Ts_j, ωj = 2π/T_j = π/(2·Ts_j)
+    轨迹总时长取最慢关节的一个完整周期: T_total = max_j(T_j)
 
     Parameters
     ----------
-    Ts            : float, 1/4 正弦周期 (秒)
+    Ts            : float | sequence, 各关节 1/4 正弦周期 (秒);
+                    传 1 个值则广播到 6 关节, 或传 6 个值分别指定
     freq          : float, 采样频率 f (Hz), delta_t = 1/f
-    amplitude_deg : float, 正弦幅值 (度), 默认 180°
+    amplitude_deg : float | sequence, 各关节正弦幅值 (度);
+                    传 1 个值则广播到 6 关节, 或传 6 个值分别指定,
+                    默认 [90, 0, 0, 0, 0, 0] (仅关节1运动)
     base_pose_deg : list[float], 6个关节的基准位姿 (度),
-                    默认 [0, 0, -75, 180, 0, 0]
+                    默认 [0, -75, 180, 0, 0, 0]
 
     Returns
     -------
@@ -71,6 +92,9 @@ def generate_sine_trajectory(
         delta_t   : float             相邻两点时间间隔
         freq      : float             采样频率
         base_pose : np.ndarray (6,)   基准位姿 (度)
+        Ts        : np.ndarray (6,)   各关节 1/4 周期 (秒)
+        amplitude : np.ndarray (6,)   各关节幅值 (度)
+        omega     : np.ndarray (6,)   各关节角频率 (rad/s)
         positions : np.ndarray (N, 6) 关节位置 (度)
         velocities: np.ndarray (N, 6) 关节速度 (度/秒)
         accelerations: np.ndarray (N, 6) 关节加速度 (度/秒²)
@@ -80,39 +104,47 @@ def generate_sine_trajectory(
     base_pose = np.asarray(base_pose_deg, dtype=float)
     assert len(base_pose) == 6, f"base_pose_deg 须包含 6 个关节值, 当前 {len(base_pose)}"
 
+    Ts_arr = _broadcast6(Ts, "Ts")                       # (6,) 各关节 1/4 周期
+    A_arr = _broadcast6(amplitude_deg, "amplitude_deg")  # (6,) 各关节幅值
+    assert np.all(Ts_arr > 0), f"Ts 各分量须为正数, 当前 {Ts_arr.tolist()}"
+
     delta_t = 1.0 / freq
-    T = 4.0 * Ts                       # 完整周期
-    omega = 2.0 * np.pi / T            # 角频率 (rad/s)
-    A = amplitude_deg                  # 幅值 (度)
+    T_j = 4.0 * Ts_arr                 # 各关节完整周期 (6,)
+    omega = 2.0 * np.pi / T_j          # 各关节角频率 (rad/s) (6,)
 
-    # 时间序列: 覆盖一个完整周期 [0, T]
-    N = int(np.round(T * freq)) + 1
-    t = np.linspace(0, T, N)
+    # 时间序列: 覆盖最慢关节的一个完整周期 [0, T_total]
+    T_total = float(np.max(T_j))
+    N = int(np.round(T_total * freq)) + 1
+    t = np.linspace(0, T_total, N)     # (N,)
 
-    # 关节1 正弦偏移
-    q1_offset  = A * np.sin(omega * t)                    # 度
-    dq1        = A * omega * np.cos(omega * t)            # 度/秒
-    ddq1       = -A * omega**2 * np.sin(omega * t)        # 度/秒²
+    # 各关节正弦偏移 (N, 6): 相位 = ωj·t, 按列广播幅值/角频率
+    phase = np.outer(t, omega)                           # (N, 6)
+    offsets = A_arr * np.sin(phase)                      # (N, 6) 度
+    velocities = A_arr * omega * np.cos(phase)           # (N, 6) 度/秒
+    accelerations = -A_arr * omega**2 * np.sin(phase)    # (N, 6) 度/秒²
 
-    # 组装 6 关节数据: 基准位姿 + 正弦偏移 (仅关节1)
-    positions = np.tile(base_pose, (N, 1))                # (N, 6) 每行都是基准位姿
-    positions[:, 0] += q1_offset                          # 关节1 叠加正弦
+    # 组装 6 关节数据: 基准位姿 + 各关节正弦偏移
+    positions = np.tile(base_pose, (N, 1)) + offsets     # (N, 6)
 
-    velocities = np.zeros((N, 6))
-    velocities[:, 0] = dq1
+    # 循环下发接缝检查: 各关节周期须整除 T_total, 首尾才能相接不跳变
+    cycles = T_total / T_j
+    if np.any(np.abs(cycles - np.round(cycles)) > 1e-6):
+        print(f"[轨迹生成] 警告: 部分关节周期不能整除总时长 {T_total:.2f}s, "
+              f"循环下发接缝处可能跳变 (各关节周期数={np.round(cycles, 3).tolist()})")
 
-    accelerations = np.zeros((N, 6))
-    accelerations[:, 0] = ddq1
-
-    print(f"[轨迹生成] Ts={Ts}s, freq={freq}Hz, delta_t={delta_t:.4f}s, "
-          f"点数={N}, 周期={T:.2f}s, 幅值={amplitude_deg}°")
-    print(f"[轨迹生成] 基准位姿: {base_pose_deg}")
+    print(f"[轨迹生成] freq={freq}Hz, delta_t={delta_t:.4f}s, "
+          f"点数={N}, 总时长={T_total:.2f}s")
+    print(f"[轨迹生成] Ts(1/4周期)={Ts_arr.tolist()}  幅值={A_arr.tolist()}")
+    print(f"[轨迹生成] 基准位姿={base_pose.tolist()}")
 
     return {
         "time": t,
         "delta_t": delta_t,
         "freq": freq,
         "base_pose": base_pose,
+        "Ts": Ts_arr,
+        "amplitude": A_arr,
+        "omega": omega,
         "positions": positions,
         "velocities": velocities,
         "accelerations": accelerations,
@@ -156,8 +188,8 @@ def visualize_trajectory(traj: dict, urdf_path: Path, vis_step: int = 1):
         viewer.set_joint_angles_degrees(j_deg[:n_joints])
 
         t_now = traj["time"][i]
-        q1_now = j_deg[0]
-        print(f"\r  帧 {i:4d}/{n_frames}  t={t_now:6.3f}s  J1={q1_now:7.2f}°", end="")
+        qs = " ".join(f"J{k+1}={j_deg[k]:7.2f}" for k in range(len(j_deg)))
+        print(f"\r  帧 {i:4d}/{n_frames}  t={t_now:6.3f}s  {qs}", end="")
 
         time.sleep(delta_t * vis_step)
 
@@ -416,6 +448,11 @@ def send_trajectory_to_robot(
     robot = RobotArmSDK(port)
     print(f"[下发] 已连接机械臂: {port}")
 
+    # import ipdb;ipdb.set_trace()
+    # robot.get_motor_currents()
+    # robot.get_motor_temperatures()
+    # import ipdb;ipdb.set_trace()
+
     recorder = TrajectoryRecorder()
     stop_flag = threading.Event()    # 停止反馈采样
     exit_flag = threading.Event()    # 绘图窗口关闭 → 请求停止下发
@@ -461,11 +498,13 @@ def send_trajectory_to_robot(
             # SDK 内部以 %.3f 格式化关节角, 无需手动取整
             j_start = list(traj["positions"][0])
             t_cmd = time.time()
-            resp = robot.move_j(j_start, speed=speed, wait_ack=True)
+            resp = robot.move_j(j_start, speed=100, wait_ack=True)
             recorder.log_command(t_cmd, j_start, _parse_free(resp))
             # wait_ack 只等入队应答, 需再等运动完成广播, 确保到达轨迹起点
             if not _wait_motion_done(robot):
                 print("[下发] 警告: 等待起点定位运动完成超时")
+            
+            time.sleep(5.0)
 
             positions = traj["positions"]
             delta_t = traj["delta_t"]
@@ -508,8 +547,9 @@ def send_trajectory_to_robot(
                             time.sleep(wait_time)
 
                         if i % 10 == 0:
+                            qs = " ".join(f"J{k+1}={j[k]:7.2f}" for k in range(len(j)))
                             print(f"\r  点 {i:4d}/{n_points}  t={traj['time'][i]:6.3f}s  "
-                                  f"J1={j[0]:7.2f}°", end="")
+                                  f"{qs}", end="")
 
                     print(f"\n[下发] 第 {round_i} 轮下发完成, 总耗时 {time.time() - t_start:.2f}s")
 
@@ -616,27 +656,32 @@ def plot_saved_log(log_path: str):
 # ======================================================================
 def main():
     parser = argparse.ArgumentParser(description="正弦轨迹测试")
-    parser.add_argument("--Ts", type=float, default=1.0,
-                        help="1/4 正弦周期 (秒), 默认 2.0")
+    parser.add_argument("--Ts", type=float, nargs="+", default=[2.0],
+                        help="各关节 1/4 正弦周期 (秒), 传 1 个值广播到 6 关节, "
+                             "或传 6 个值分别指定, 默认 2.0")
     parser.add_argument("--freq", type=float, default=50.0,
                         help="采样频率 f (Hz), 默认 50")
-    parser.add_argument("--amplitude", type=float, default=90.0,
-                        help="正弦幅值 (度), 默认 180")
+    parser.add_argument("--amplitude", type=float, nargs="+",
+                        # default=[45.0, 45.0, 30.0, 45.0, 45.0, 180.0],
+                        default=[45.0, 0, 45.0, 0, 0, 0],
+                        help="各关节正弦幅值 (度), 传 1 个值广播到 6 关节, "
+                             "或传 6 个值分别指定, 默认 90 0 0 0 0 0 (仅关节1运动)")
     parser.add_argument("--base_pose", type=float, nargs=6,
-                        default=[0.0, -75.0, 180.0, 0.0, 0.0, 0.0],
-                        help="基准关节位姿 (度), 6个值, 默认 0 0 -75 180 0 0")
+                        # default=[0.0, 0.0, 90.0, 0.0, 0.0, 0.0],
+                        default=[0.0, -75.0, 90.0, 0.0, 0.0, 0.0],
+                        help="基准关节位姿 (度), 6个值, 默认 0.0, -75.0, 180.0, 0.0, 0.0, 0.0")
     parser.add_argument("--vis_only", action="store_true",
                         help="仅可视化, 不下发机械臂")
     parser.add_argument("--send_only", action="store_true",
                         help="仅下发机械臂, 不启动 viser 可视化")
     parser.add_argument("--port", type=str, default="/dev/ttyACM0",
                         help="串口端口, 默认 /dev/ttyACM0")
-    parser.add_argument("--speed", type=int, default=50,
+    parser.add_argument("--speed", type=int, default=100,
                         help="move_j 速度参数 (可选)")
-    parser.add_argument("--speed_factor", type=float, default=0.2,
+    parser.add_argument("--speed_factor", type=float, default=0.1,
                         help="速度单位->电机轴 r/s 换算系数, 使能后下发, "
                              "固件夹取[0.01,1.0], 默认 0.2")
-    parser.add_argument("--acc_percent", type=float, default=50.0,
+    parser.add_argument("--acc_percent", type=float, default=15.0,
                         help="加速度百分比, 使能后下发, 固件夹取[0,100], 默认 100")
     parser.add_argument("--acc_base", type=float, nargs=6,
                         default=[150.0, 100.0, 200.0, 200.0, 200.0, 200.0],
@@ -669,11 +714,14 @@ def main():
         base_pose_deg=args.base_pose,
     )
 
-    # 打印轨迹摘要
-    print(f"  J1 位置范围: [{traj['positions'][:, 0].min():.1f}, "
-          f"{traj['positions'][:, 0].max():.1f}] °")
-    print(f"  J1 最大速度: {np.abs(traj['velocities'][:, 0]).max():.1f} °/s")
-    print(f"  J1 最大加速度: {np.abs(traj['accelerations'][:, 0]).max():.1f} °/s²")
+    # 打印轨迹摘要 (逐关节)
+    print("  各关节位置范围 / 最大速度 / 最大加速度:")
+    for k in range(6):
+        pk = traj["positions"][:, k]
+        vk = np.abs(traj["velocities"][:, k]).max()
+        ak = np.abs(traj["accelerations"][:, k]).max()
+        print(f"    J{k+1}: [{pk.min():7.1f}, {pk.max():7.1f}]°  "
+              f"vmax={vk:7.1f}°/s  amax={ak:8.1f}°/s²")
 
     # ---------- 2 & 3. 可视化 / 下发 ----------
     if args.vis_only:
