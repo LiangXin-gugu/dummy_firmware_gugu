@@ -142,6 +142,18 @@ void OnUsbAsciiCmd(const char* _cmd, size_t _len, StreamSink &_responseChannel)
             else {
                 Respond(_responseChannel, "error SET MOTOR [%lu] DCE_KP [%lu] is wrong", node, kp);
             }
+        } else if (strstr(_cmd, "SET_DCE_KV") != nullptr)
+        {
+            uint32_t kv;
+            uint32_t node;
+            sscanf(_cmd, "#SET_DCE_KV %lu %lu", &node, &kv);
+            if (node >= 1 & node <= 6){
+                dummy.motorJ[node]->SetDceKv(kv);
+                Respond(_responseChannel, "ok SET MOTOR [%lu] DCE_KV [%lu]", node, kv);
+            }
+            else {
+                Respond(_responseChannel, "error SET MOTOR [%lu] DCE_KV [%lu] is wrong", node, kv);
+            }
         } else if (strstr(_cmd, "SET_DCE_KI") != nullptr)
         {
             uint32_t kp;

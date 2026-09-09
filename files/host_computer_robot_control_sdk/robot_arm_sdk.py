@@ -86,7 +86,7 @@ _RESP_QUEUED = re.compile(r"^(ok queued free=\d+|error queue full)$")
 # 关节/末端位姿查询："ok x.xx x.xx x.xx x.xx x.xx x.xx"（固件 %.2f 格式）
 _RESP_6FLOAT = re.compile(r"^ok -?\d+\.\d+( -?\d+\.\d+){5}$")
 # DCE 参数设置："ok/error SET MOTOR [n] DCE_KP [v]"
-_RESP_SET_DCE = re.compile(r"^(ok|error) SET MOTOR \[\d+\] DCE_K[PID] \[\d+\]( is wrong)?$")
+_RESP_SET_DCE = re.compile(r"^(ok|error) SET MOTOR \[\d+\] DCE_K[PIDV] \[\d+\]( is wrong)?$")
 # 电机重启："ok/error REBOOT MOTOR [n]"
 _RESP_REBOOT = re.compile(r"^(ok|error) REBOOT MOTOR \[\d+\]$")
 # 命令模式切换："ok Set command mode to [n]"
@@ -426,6 +426,12 @@ class RobotArmSDK:
         """#SET_DCE_KP node kp 设置关节位置环 Kp。"""
         self._check_node(node)
         return self.send_command("#SET_DCE_KP %d %d" % (node, kp),
+                                 pattern=_RESP_SET_DCE, timeout=timeout)
+
+    def set_dce_kv(self, node, kv, timeout=None):
+        """#SET_DCE_KV node kv 设置关节速度环 Kv（DCE 速度误差积分增益）。"""
+        self._check_node(node)
+        return self.send_command("#SET_DCE_KV %d %d" % (node, kv),
                                  pattern=_RESP_SET_DCE, timeout=timeout)
 
     def set_dce_ki(self, node, ki, timeout=None):

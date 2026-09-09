@@ -453,6 +453,16 @@ def send_trajectory_to_robot(
     # robot.get_motor_temperatures()
     # import ipdb;ipdb.set_trace()
 
+    # robot.set_dce_kp(2,200)
+    # robot.set_dce_kd(2,250)
+    # robot.set_dce_kv(2,80)
+    
+    # set joint 2&3 ki lower, for reducing vibration
+    robot.set_dce_ki(2,10)
+    robot.set_dce_ki(3,10)
+    # import ipdb;ipdb.set_trace()
+
+
     recorder = TrajectoryRecorder()
     stop_flag = threading.Event()    # 停止反馈采样
     exit_flag = threading.Event()    # 绘图窗口关闭 → 请求停止下发
@@ -656,19 +666,35 @@ def plot_saved_log(log_path: str):
 # ======================================================================
 def main():
     parser = argparse.ArgumentParser(description="正弦轨迹测试")
-    parser.add_argument("--Ts", type=float, nargs="+", default=[2.0],
+    parser.add_argument("--Ts", type=float, nargs="+", default=[2],
                         help="各关节 1/4 正弦周期 (秒), 传 1 个值广播到 6 关节, "
                              "或传 6 个值分别指定, 默认 2.0")
     parser.add_argument("--freq", type=float, default=50.0,
                         help="采样频率 f (Hz), 默认 50")
     parser.add_argument("--amplitude", type=float, nargs="+",
-                        # default=[45.0, 45.0, 30.0, 45.0, 45.0, 180.0],
-                        default=[45.0, 0, 45.0, 0, 0, 0],
+                        default=[45.0, 30.0, 45.0, 60.0, 60.0, 180.0], # test all joint
+                        # default=[45.0, 0, 45.0, 0, 0, 0], # test joint 1&3
+                        # default=[170.0, 0, 0, 0, 0, 0], # test joint 1
+                        # default=[0.0, 45.0, 0.0, 0, 0, 0], # test joint 2
+                        # default=[0.0, 0.0, 60.0, 0, 0, 0], # test joint 3 _ type A
+                        # default=[0.0, 0.0, 60.0, 0, 0, 0], # test joint 3 _ type B
+                        # default=[0.0, 0.0, 0, 100.0, 0, 0], # test joint 4
+                        # default=[0.0, 0.0, 0, 0, 60.0, 0], # test joint 5
+                        # default=[0.0, 0.0, 0, 0, 0, 180], # test joint 6
+                        # default=[45.0, 0.0, 45.0, 60.0, 60.0, 180.0], # test 1,3~6
                         help="各关节正弦幅值 (度), 传 1 个值广播到 6 关节, "
                              "或传 6 个值分别指定, 默认 90 0 0 0 0 0 (仅关节1运动)")
     parser.add_argument("--base_pose", type=float, nargs=6,
-                        # default=[0.0, 0.0, 90.0, 0.0, 0.0, 0.0],
-                        default=[0.0, -75.0, 90.0, 0.0, 0.0, 0.0],
+                        default=[0.0, 0.0, 90.0, 0.0, 0.0, 0.0], # test all joint
+                        # default=[0.0, -75.0, 90.0, 0.0, 0.0, 0.0], # test joint 1&3
+                        # default=[0.0, -75.0, 180.0, 0.0, 0.0, 0.0], # test joint 1
+                        # default=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0], # test joint 2
+                        # default=[0.0, 0.0, 90.0, 0.0, 0.0, 0.0], # test joint 3 _ type A
+                        # default=[0.0, -75.0, 90.0, 0.0, 0.0, 0.0], # test joint 3 _ type B
+                        # default=[0.0, -75.0, 90.0, 0.0, 0.0, 0.0], # test joint 4 
+                        # default=[0.0, 0, 90.0, 0.0, 0.0, 0.0], # test joint 5
+                        # default=[0.0, 0, 90.0, 0.0, 0.0, 0.0], # test joint 6
+                        # default=[0.0, 0, 90.0, 0.0, 0.0, 0.0], # test joint 1,3~6
                         help="基准关节位姿 (度), 6个值, 默认 0.0, -75.0, 180.0, 0.0, 0.0, 0.0")
     parser.add_argument("--vis_only", action="store_true",
                         help="仅可视化, 不下发机械臂")
@@ -678,10 +704,10 @@ def main():
                         help="串口端口, 默认 /dev/ttyACM0")
     parser.add_argument("--speed", type=int, default=100,
                         help="move_j 速度参数 (可选)")
-    parser.add_argument("--speed_factor", type=float, default=0.1,
+    parser.add_argument("--speed_factor", type=float, default=0.2,
                         help="速度单位->电机轴 r/s 换算系数, 使能后下发, "
                              "固件夹取[0.01,1.0], 默认 0.2")
-    parser.add_argument("--acc_percent", type=float, default=15.0,
+    parser.add_argument("--acc_percent", type=float, default=100.0,
                         help="加速度百分比, 使能后下发, 固件夹取[0,100], 默认 100")
     parser.add_argument("--acc_base", type=float, nargs=6,
                         default=[150.0, 100.0, 200.0, 200.0, 200.0, 200.0],
