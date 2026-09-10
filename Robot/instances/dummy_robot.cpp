@@ -175,9 +175,15 @@ bool DummyRobot::MoveL(float _x, float _y, float _z, float _a, float _b, float _
     return false;
 }
 
+// Per-joint angle polling: query each motor individually instead of broadcast.
+// Similar to UpdateAllCurrent(), this avoids arbitration conflicts where low ID wins
+// and high ID gets dropped due to AutoRetransmission=DISABLE. With sequential individual
+// queries, each motor has its own exclusive response slot in the same FixUpdate tick.
 void DummyRobot::UpdateJointAngles()
 {
-    motorJ[ALL]->UpdateAngle();
+    for (int i = 1; i <= 6; i++) {
+        motorJ[i]->UpdateAngle();
+    }
 }
 
 
@@ -195,15 +201,27 @@ void DummyRobot::UpdateJointAnglesCallback()
 }
 
 
+// Per-joint current polling: query each motor individually (using its own nodeID) instead of
+// broadcast to nodeID==0. This avoids all motors responding simultaneously to the same broadcast,
+// which causes arbitration conflicts (low ID always wins, high ID gets dropped forever due to
+// AutoRetransmission=DISABLE). With sequential individual queries, each motor has its own
+// exclusive response slot in time (~5ms between queries), reducing collision probability.
 void DummyRobot::UpdateAllCurrent()
 {
-    motorJ[ALL]->UpdateCurrent();
+    for (int i = 1; i <= 6; i++) {
+        motorJ[i]->UpdateCurrent();
+    }
 }
 
 
+// Per-joint temperature polling: query each motor individually instead of broadcast.
+// Avoids arbitration conflicts similar to current polling. Temperature changes slowly (~1Hz),
+// so sequential per-joint queries within the same tick are efficient and fair.
 void DummyRobot::UpdateAllTemp()
 {
-    motorJ[ALL]->UpdateTemp();
+    for (int i = 1; i <= 6; i++) {
+        motorJ[i]->UpdateTemp();
+    }
 }
 
 

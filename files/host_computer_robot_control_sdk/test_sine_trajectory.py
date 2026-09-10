@@ -11,6 +11,7 @@
   python test_sine_trajectory.py --Ts 2 2 2 2 2 2 --amplitude 30 0 0 0 0 0   # 每关节独立指定
   python test_sine_trajectory.py --Ts 2.0 --freq 50 --vis_only          # 仅可视化
   python test_sine_trajectory.py --plot_log trajectory_logs/xxx.npz    # 离线绘制已保存日志
+  python test_sine_trajectory.py --no_current                         # 关闭电流采样/记录/绘图
 
 记录数据说明 (保存为 trajectory_logs/*.npz):
   cmd_time       : (M,)   指令下发时间戳 (秒, time.time())
@@ -18,6 +19,8 @@
   cmd_free       : (M,)   入队应答中的剩余队列容量 free=N (流式/无应答为 NaN)
   fbk_time       : (K,)   反馈采样时间戳 (秒, 收到响应时刻)
   fbk_positions  : (K, 6) 反馈的实时关节角 (度, GETJPOS)
+  fbk_currents   : (K, 6) 与关节反馈同频采样的电机 FOC 电流 (安培, GET_CURRENT);
+                   仅在未指定 --no_current 时记录, 否则为空数组
 """
 
 import re
@@ -224,7 +227,7 @@ def _setup_cjk_font():
 
 
 class TrajectoryRecorder:
-    """线程安全地记录下发指令与反馈关节角 (含时间戳)"""
+    """线程安全地记录下发指令与反馈关节角/电机电流 (含时间戳)"""
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -233,6 +236,7 @@ class TrajectoryRecorder:
         self.cmd_free: list[float] = []    # 入队应答中的剩余队列容量 free=N
         self.fbk_time: list[float] = []
         self.fbk_positions: list[list[float]] = []
+        self.fbk_currents: list[list[float]] = []   # 与关节反馈同频的电机电流 (A)
 
     def log_command(self, t: float, q, free: float = float("nan")):
         with self._lock:
@@ -240,37 +244,46 @@ class TrajectoryRecorder:
             self.cmd_positions.append(list(q))
             self.cmd_free.append(free)
 
-    def log_feedback(self, t: float, q):
+    def log_feedback(self, t: float, q, currents=None):
+        """记录一次反馈采样: 关节角 q 必填; currents 为同频采样的电机电流,
+        传 None 表示本次未采电流 (关闭电流采样时), 此时不追加 fbk_currents。
+        开启电流采样时逐点必传 (失败用 NaN 占位), 保证与 fbk_time 长度一致。"""
         with self._lock:
             self.fbk_time.append(t)
             self.fbk_positions.append(list(q))
+            if currents is not None:
+                self.fbk_currents.append(list(currents))
 
     def snapshot(self):
-        """返回 (cmd_t, cmd_q, cmd_free, fbk_t, fbk_q) 的 numpy 数组副本"""
+        """返回 (cmd_t, cmd_q, cmd_free, fbk_t, fbk_q, fbk_cur) 的 numpy 数组副本"""
         with self._lock:
             cmd_t = np.asarray(self.cmd_time, dtype=float)
             cmd_q = np.asarray(self.cmd_positions, dtype=float)
             cmd_free = np.asarray(self.cmd_free, dtype=float)
             fbk_t = np.asarray(self.fbk_time, dtype=float)
             fbk_q = np.asarray(self.fbk_positions, dtype=float)
-        return cmd_t, cmd_q, cmd_free, fbk_t, fbk_q
+            fbk_cur = np.asarray(self.fbk_currents, dtype=float)
+        return cmd_t, cmd_q, cmd_free, fbk_t, fbk_q, fbk_cur
 
     def save(self, path: Path):
-        cmd_t, cmd_q, cmd_free, fbk_t, fbk_q = self.snapshot()
+        cmd_t, cmd_q, cmd_free, fbk_t, fbk_q, fbk_cur = self.snapshot()
         path.parent.mkdir(parents=True, exist_ok=True)
         np.savez(path,
                  cmd_time=cmd_t, cmd_positions=cmd_q, cmd_free=cmd_free,
-                 fbk_time=fbk_t, fbk_positions=fbk_q)
+                 fbk_time=fbk_t, fbk_positions=fbk_q, fbk_currents=fbk_cur)
+        cur_txt = f", 电流 {fbk_cur.shape[0]} 点" if fbk_cur.size else ""
         print(f"[记录] 数据已保存: {path}")
-        print(f"[记录]   指令 {len(cmd_t)} 点, 反馈 {len(fbk_t)} 点")
+        print(f"[记录]   指令 {len(cmd_t)} 点, 反馈 {len(fbk_t)} 点{cur_txt}")
 
 
 class RealtimeJointPlot:
-    """实时绘图窗口: 每个关节一个子图, 对比指令角度与反馈角度 (滑动时间窗)"""
+    """实时绘图窗口: 每个关节一个子图, 对比指令角度与反馈角度 (滑动时间窗);
+    开启电流采样时, 每个关节子图右侧副轴 (twinx) 叠加同关节电流曲线,
+    与关节角共用横轴 (时间), 纵轴各自独立尺度。"""
 
     def __init__(self, recorder: TrajectoryRecorder,
                  n_joints: int = 6, window_s: float = 10.0,
-                 interval_ms: int = 100):
+                 interval_ms: int = 100, sample_current: bool = True):
         import matplotlib.pyplot as plt
         from matplotlib.animation import FuncAnimation
         from matplotlib.gridspec import GridSpec
@@ -279,13 +292,15 @@ class RealtimeJointPlot:
 
         self.recorder = recorder
         self.window_s = window_s
+        self.sample_current = sample_current
 
         # 4x2 网格: 前 3 行放关节子图, 底行整行放队列剩余容量 free
         self.fig = plt.figure(figsize=(12, 10))
         gs = GridSpec(4, 2, figure=self.fig)
         axes = [self.fig.add_subplot(gs[r, c]) for r in range(3) for c in range(2)]
         self.axes = axes[:n_joints]
-        self.cmd_lines, self.fbk_lines = [], []
+        self.cmd_lines, self.fbk_lines, self.cur_lines = [], [], []
+        self.axes_cur = []          # 各关节电流的右侧副轴 (twinx), 与主轴共用横轴
         for k, ax in enumerate(self.axes):
             (l_cmd,) = ax.plot([], [], "b-", lw=1.2, label="指令")
             (l_fbk,) = ax.plot([], [], "r-", lw=1.0, label="反馈")
@@ -295,8 +310,19 @@ class RealtimeJointPlot:
             ax.set_xlabel("t (s)")
             ax.set_ylabel("角度 (°)")
             ax.grid(True, alpha=0.3)
+            l_cur = None
+            if self.sample_current:
+                # 右侧副轴画电流, 独立纵轴刻度, 与关节角共用横轴 (时间)
+                ax2 = ax.twinx()
+                (l_cur,) = ax2.plot([], [], "g-", lw=1.0, alpha=0.7, label="电流")
+                ax2.set_ylabel("电流 (A)", color="g")
+                ax2.tick_params(axis="y", labelcolor="g")
+                self.axes_cur.append(ax2)
+                self.cur_lines.append(l_cur)
             if k == 0:
-                ax.legend(loc="upper right")
+                handles = [l_cmd, l_fbk] + ([l_cur] if l_cur is not None else [])
+                ax.legend(handles, [h.get_label() for h in handles],
+                          loc="upper right", fontsize="small")
 
         # 底部子图: 固件队列剩余容量 free 随时间变化
         # 占单个子图位置 (与关节图同尺寸, 便于肉眼对齐时间轴), 右侧留白
@@ -322,12 +348,14 @@ class RealtimeJointPlot:
         plt.show(block=True)
 
     def _update(self, _frame):
-        cmd_t, cmd_q, cmd_free, fbk_t, fbk_q = self.recorder.snapshot()
+        cmd_t, cmd_q, cmd_free, fbk_t, fbk_q, fbk_cur = self.recorder.snapshot()
         if len(cmd_t) == 0 and len(fbk_t) == 0:
             return
         t_ref = max(cmd_t[-1] if len(cmd_t) else 0.0,
                     fbk_t[-1] if len(fbk_t) else 0.0)
         t_min = t_ref - self.window_s
+        # 电流与关节反馈共用 fbk_time (逐点对齐), 存在且为二维时才绘制
+        has_cur = self.sample_current and fbk_cur.ndim == 2 and fbk_cur.size > 0
 
         for k, ax in enumerate(self.axes):
             y_shown = []
@@ -345,6 +373,16 @@ class RealtimeJointPlot:
                 if y.size > 0:
                     pad = max(1.0, 0.05 * float(np.ptp(y)))
                     ax.set_ylim(float(y.min()) - pad, float(y.max()) + pad)
+            # 右侧副轴: 电流 (共用横轴/时间窗, 纵轴按可见电流独立自适应)
+            if has_cur and fbk_cur.shape[1] > k and len(fbk_t):
+                mc = fbk_t >= t_min
+                self.cur_lines[k].set_data(fbk_t[mc], fbk_cur[mc, k])
+                c = fbk_cur[mc, k]
+                c = c[~np.isnan(c)]
+                if c.size > 0:
+                    pad_c = max(0.05, 0.05 * float(np.ptp(c)))
+                    self.axes_cur[k].set_ylim(float(c.min()) - pad_c,
+                                              float(c.max()) + pad_c)
 
         # 底部子图: 队列剩余容量 free (与关节图共用滑动时间窗)
         if len(cmd_t):
@@ -359,12 +397,17 @@ class RealtimeJointPlot:
 
 def _feedback_sampler(robot, recorder: TrajectoryRecorder,
                       stop_flag: threading.Event,
-                      sample_interval: float = 0.02):
+                      sample_interval: float = 0.02,
+                      sample_current: bool = True):
     """后台线程: 轮询 GETJPOS, 记录反馈关节角与时间戳 (新 SDK 内部线程安全)
 
     sample_interval: 两次采样之间的最小间隔 (秒), 防止固件被高频查询压垮
+    sample_current : True 时在读取关节角后紧接着读取 GET_CURRENT, 与关节反馈
+                     同频、共用同一时间戳记录电流; 单次电流读取失败记 NaN 占位,
+                     以保持与 fbk_time/fbk_positions 逐点对齐 (不打断关节采样)
     """
     fail_count = 0
+    cur_fail_count = 0
     while not stop_flag.is_set():
         try:
             q = robot.get_joint_pos()
@@ -376,7 +419,18 @@ def _feedback_sampler(robot, recorder: TrajectoryRecorder,
                 print(f"\n[记录] GETJPOS 失败 ({fail_count}): {e}")
             stop_flag.wait(0.05)
             continue
-        recorder.log_feedback(t, q)
+        currents = None
+        if sample_current:
+            # 紧随关节角读取电流, 保持与 joints 相同的采样频率与时间戳
+            try:
+                currents = robot.get_motor_currents()
+                cur_fail_count = 0
+            except Exception as e:
+                cur_fail_count += 1
+                if cur_fail_count <= 3:
+                    print(f"\n[记录] GET_CURRENT 失败 ({cur_fail_count}): {e}")
+                currents = [float("nan")] * len(q)   # 对齐占位
+        recorder.log_feedback(t, q, currents)
         stop_flag.wait(sample_interval)
 
 
@@ -409,6 +463,7 @@ def send_trajectory_to_robot(
     stream: bool = False,
     sample_interval: float = 0.02,
     sample_feedback: bool = True,
+    sample_current: bool = True,
     speed_factor: float = 0.2,
     acc_percent: float = 100.0,
     acc_base: list[float] | None = None,
@@ -417,6 +472,7 @@ def send_trajectory_to_robot(
     通过 RobotArmSDK.move_j 逐点下发轨迹, 同时记录:
       - 每条指令及其下发时间戳
       - 后台轮询 GETJPOS 得到的实时关节角及时间戳
+      - (可选) 与关节反馈同频读取的 GET_CURRENT 电机电流
     数据保存到 trajectory_logs/*.npz, 并可选实时绘图对比。
     RobotArmSDK 内部线程安全 (后台读线程 + 应答特征匹配), 无需外部串口锁。
 
@@ -434,6 +490,9 @@ def send_trajectory_to_robot(
                     防止高频 GETJPOS 压垮固件
     sample_feedback : False 时不启动 GETJPOS 反馈采样线程,
                     串口带宽全部留给 move_j 下发
+    sample_current : True (默认) 时在反馈采样线程内紧随 GETJPOS 读取
+                    GET_CURRENT, 与关节反馈同频记录并在各关节子图右侧副轴
+                    绘制电流; 依附于反馈采样, sample_feedback=False 时不生效
     speed_factor  : 速度单位->电机轴 r/s 换算系数, 使能后下发,
                     固件夹取到 [0.01, 1.0], 默认 0.2
     acc_percent   : 加速度百分比, 使能后下发, 固件夹取到 [0, 100], 默认 100
@@ -468,7 +527,11 @@ def send_trajectory_to_robot(
     exit_flag = threading.Event()    # 绘图窗口关闭 → 请求停止下发
     sampler = None
 
-    plot = RealtimeJointPlot(recorder) if realtime_plot else None
+    # 电流采样依附于反馈采样线程 (与关节反馈同频); 关闭反馈采样时电流也不采
+    sample_current_eff = sample_current and sample_feedback
+
+    plot = (RealtimeJointPlot(recorder, sample_current=sample_current_eff)
+            if realtime_plot else None)
 
     # 阻塞式: 等待入队应答 (可感知 queue full); 流式: 发后即忘, 靠固件队列缓冲
     send_kw = dict(wait_ack=False) if stream else dict(wait_ack=True)
@@ -498,9 +561,12 @@ def send_trajectory_to_robot(
             if sample_feedback:
                 sampler = threading.Thread(
                     target=_feedback_sampler,
-                    args=(robot, recorder, stop_flag, sample_interval),
+                    args=(robot, recorder, stop_flag, sample_interval,
+                          sample_current_eff),
                     daemon=True)
                 sampler.start()
+                if sample_current_eff:
+                    print("[下发] 已启用电流采样 (与关节反馈同频, GET_CURRENT)")
             else:
                 print("[下发] 已禁用反馈采样 (--no_sample), 仅下发指令")
 
@@ -618,6 +684,10 @@ def plot_saved_log(log_path: str):
     data = np.load(log_path)
     cmd_t, cmd_q = data["cmd_time"], data["cmd_positions"]
     fbk_t, fbk_q = data["fbk_time"], data["fbk_positions"]
+    # 电流字段为可选 (旧日志或 --no_current 时不存在或为空)
+    fbk_cur = data["fbk_currents"] if "fbk_currents" in data.files else np.zeros(0)
+    has_cur = (fbk_cur.ndim == 2 and fbk_cur.size > 0
+               and fbk_cur.shape[0] == len(fbk_t))
     if len(cmd_t) == 0 and len(fbk_t) == 0:
         print(f"[离线绘图] 日志为空: {log_path}")
         return
@@ -630,16 +700,28 @@ def plot_saved_log(log_path: str):
     axes = [fig.add_subplot(gs[r, c]) for r in range(3) for c in range(2)]
     for k in range(n_joints):
         ax = axes[k]
+        handles = []
         if len(cmd_t):
-            ax.plot(cmd_t - t0, cmd_q[:, k], "b-", lw=1.2, label="指令")
+            (l_cmd,) = ax.plot(cmd_t - t0, cmd_q[:, k], "b-", lw=1.2, label="指令")
+            handles.append(l_cmd)
         if len(fbk_t):
-            ax.plot(fbk_t - t0, fbk_q[:, k], "r-", lw=1.0, label="反馈")
+            (l_fbk,) = ax.plot(fbk_t - t0, fbk_q[:, k], "r-", lw=1.0, label="反馈")
+            handles.append(l_fbk)
         ax.set_title(f"关节 {k + 1}")
         ax.set_xlabel("t (s)")
         ax.set_ylabel("角度 (°)")
         ax.grid(True, alpha=0.3)
-        if k == 0:
-            ax.legend(loc="upper right")
+        # 右侧副轴: 电流 (与关节角共用横轴, 纵轴独立尺度)
+        if has_cur and fbk_cur.shape[1] > k:
+            ax2 = ax.twinx()
+            (l_cur,) = ax2.plot(fbk_t - t0, fbk_cur[:, k], "g-", lw=1.0,
+                                alpha=0.7, label="电流")
+            ax2.set_ylabel("电流 (A)", color="g")
+            ax2.tick_params(axis="y", labelcolor="g")
+            handles.append(l_cur)
+        if k == 0 and handles:
+            ax.legend(handles, [h.get_label() for h in handles],
+                      loc="upper right", fontsize="small")
     fig.suptitle(f"指令跟随分析: {Path(log_path).name}")
 
     # 底部子图: 入队应答中的剩余队列容量 free 变化 (新日志才含该字段)
@@ -725,6 +807,10 @@ def main():
                         help="反馈采样最小间隔 (秒), 默认 0.02 (上限约 50Hz)")
     parser.add_argument("--no_sample", action="store_true",
                         help="禁用 GETJPOS 反馈采样, 仅下发 move_j 指令")
+    parser.add_argument("--no_current", action="store_true",
+                        help="禁用电流采样 (默认与关节反馈同频采样 GET_CURRENT, "
+                             "并记录/在各关节子图右侧副轴绘制电流); "
+                             "依附反馈采样, --no_sample 时本项无效")
     args = parser.parse_args()
 
     # ---------- 0. 离线绘图模式 ----------
@@ -761,6 +847,7 @@ def main():
                                  stream=args.stream,
                                  sample_interval=args.sample_interval,
                                  sample_feedback=not args.no_sample,
+                                 sample_current=not args.no_current,
                                  speed_factor=args.speed_factor,
                                  acc_percent=args.acc_percent,
                                  acc_base=args.acc_base)
@@ -774,6 +861,7 @@ def main():
                                  stream=args.stream,
                                  sample_interval=args.sample_interval,
                                  sample_feedback=not args.no_sample,
+                                 sample_current=not args.no_current,
                                  speed_factor=args.speed_factor,
                                  acc_percent=args.acc_percent,
                                  acc_base=args.acc_base)
