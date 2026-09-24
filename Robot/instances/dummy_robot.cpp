@@ -2,6 +2,7 @@
 #include "dummy_robot.h"
 
 #include <cstring>
+#include "time_utils.h"
 
 inline float AbsMaxOf6(DOF6Kinematic::Joint6D_t _joints, uint8_t &_index)
 {
@@ -28,7 +29,7 @@ DummyRobot::DummyRobot(CAN_HandleTypeDef* _hcan) :
     motorJ[3] = new CtrlStepMotor(_hcan, 3, false, 50, 0, 180);
     motorJ[4] = new CtrlStepMotor(_hcan, 4, true, 50, -180, 180);
     motorJ[5] = new CtrlStepMotor(_hcan, 5, true, 50, -90, 90);
-    motorJ[6] = new CtrlStepMotor(_hcan, 6, false, 1, -360, 360);
+    motorJ[6] = new CtrlStepMotor(_hcan, 6, false, 50, -360, 360);
     hand = new DummyHand(_hcan, 7);
 
     dof6Solver = new DOF6Kinematic(0.109f, 0.035f, 0.146f, 0.115f, 0.052f, 0.072f);
@@ -758,4 +759,74 @@ void DummyRobot::TuningHelper::SetFreqAndAmp(float _freq, float _amp)
 
     frequency = _freq;
     amplitude = _amp;
+}
+
+
+// Synchronous query for motor controller status (CAN 0x30)
+// Simulates the synchronous request-response pattern by:
+// 1. Sending a 0x30 request to the target motor
+// 2. Waiting for the ACK to be received and parsed (flag set by OnCanMessage)
+// 3. Returns fresh values once ACK arrives, with ~100ms timeout
+bool DummyRobot::GetMotorControllerStatus(uint8_t nodeId, uint8_t* requestMode,
+                                           uint8_t* modeRunning, uint8_t* state)
+{
+    if (nodeId < 1 || nodeId > 6) return false;
+    
+    // 1. Send 0x30 request to the specific motor
+    motorJ[nodeId]->GetControllerStatus();
+    
+    // 2. Wait for ACK with polling and flag checking
+    const uint32_t MAX_WAIT_US = 100000; // 100ms timeout
+    uint32_t startUs = micros();
+    
+    while (micros() - startUs < MAX_WAIT_US) {
+        // Check if we have fresh data from this specific query
+        // The flag is set by OnCanMessage when 0x30 ACK is received
+        if (motorJ[nodeId]->statusReceived) {
+            *requestMode = motorJ[nodeId]->statusRequestMode;
+            *modeRunning = motorJ[nodeId]->statusModeRunning;
+            *state = motorJ[nodeId]->statusState;
+            // Clear the flag so next query can detect new arrival
+            motorJ[nodeId]->statusReceived = false;
+            return true;
+        }
+        osDelay(1); // Poll every 1ms
+    }
+    // Timeout: clear flags and return false
+    motorJ[nodeId]->statusReceived = false;
+    return false;
+}
+
+bool DummyRobot::GetMotorDceParameters(uint8_t nodeId, int32_t* kp, int32_t* kv,
+                                       int32_t* ki, int32_t* kd)
+{
+    if (nodeId < 1 || nodeId > 6) return false;
+    
+    // 1. Send 0x31/0x32 request to the specific motor
+    motorJ[nodeId]->GetDceParameters();
+    
+    // 2. Wait for ACK with polling and flag checking
+    const uint32_t MAX_WAIT_US = 150000; // 150ms timeout (both 0x31 and 0x32)
+    uint32_t startUs = micros();
+    
+    while (micros() - startUs < MAX_WAIT_US) {
+        // Check if we have fresh data from both 0x31 and 0x32 queries
+        // The flags are set by OnCanMessage when ACKs are received
+        if (motorJ[nodeId]->dceParamsLowReceived && motorJ[nodeId]->dceParamsHighReceived) {
+            *kp = motorJ[nodeId]->dceKp;
+            *kv = motorJ[nodeId]->dceKv;
+            *ki = motorJ[nodeId]->dceKi;
+            *kd = motorJ[nodeId]->dceKd;
+            // Clear flags so next query can detect new arrivals
+            motorJ[nodeId]->dceParamsLowReceived = false;
+            motorJ[nodeId]->dceParamsHighReceived = false;
+            return true;
+        }
+        osDelay(1); // Poll every 1ms
+    }
+    
+    // Timeout: clear flags and return false
+    motorJ[nodeId]->dceParamsLowReceived = false;
+    motorJ[nodeId]->dceParamsHighReceived = false;
+    return false;
 }

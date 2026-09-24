@@ -385,3 +385,31 @@ void CtrlStepMotor::SetDceKd(int32_t _val)
 
     CanSendMessage(get_can_ctx(hcan), canBuf, &txHeader);
 }
+
+
+bool CtrlStepMotor::GetControllerStatus()
+{
+    // 构造 0x30 查询请求
+    uint8_t mode = 0x30;
+    txHeader.StdId = nodeID << 7 | mode;
+    
+    // 发送请求（不等待 ACK，由 OnCanMessage 处理响应）
+    CanSendMessage(get_can_ctx(hcan), canBuf, &txHeader);
+    
+    return true; // 发送成功即认为成功
+}
+
+bool CtrlStepMotor::GetDceParameters()
+{
+    // 构造 0x31 查询请求 (kp, kv)
+    uint8_t modeLow = 0x31;
+    txHeader.StdId = nodeID << 7 | modeLow;
+    CanSendMessage(get_can_ctx(hcan), canBuf, &txHeader);
+    
+    // 构造 0x32 查询请求 (ki, kd)
+    uint8_t modeHigh = 0x32;
+    txHeader.StdId = nodeID << 7 | modeHigh;
+    CanSendMessage(get_can_ctx(hcan), canBuf, &txHeader);
+    
+    return true; // 发送成功即认为成功
+}

@@ -103,7 +103,15 @@ _RESP_SET_ACC_PERCENT = re.compile(r"^ok SET ACC_Percent \[-?\d+\.\d+\]$")
 _RESP_SET_ACC_BASE = re.compile(
     r"^(ok SET ACC_BASE \[-?\d+\.\d+( -?\d+\.\d+){5}\]"
     r"|error SET_ACC_BASE needs 6 args, got \d+)$")
+# 电机状态查询："ok MOTOR[n] MODE_REQ[r]|MODE_RUN[m]|STATE[s]" 或 "error MOTOR[n] TIMEOUT"
+_RESP_MOTOR_STATUS = re.compile(
+    r"^(ok|error) MOTOR\[(\d+)\] "
+    r"(?:MODE_REQ\[(\d+)\]\|MODE_RUN\[(\d+)\]\|STATE\[(\d+)\]|TIMEOUT)$")
 
+# DCE 参数查询："ok MOTOR[n] KP[kp]|KV[kv]|KI[ki]|KD[kd]" 或 "error MOTOR[n] TIMEOUT"
+_RESP_DCE_PARAMS = re.compile(
+    r"^(ok|error) MOTOR\[(\d+)\] "
+    r"(?:KP\[(\d+)\]\|KV\[(\d+)\]\|KI\[(\d+)\]\|KD\[(\d+)\]|TIMEOUT)$")
 
 class _PendingTx:
     """一个正在等待应答的事务。"""
@@ -221,6 +229,7 @@ class RobotArmSDK:
 
     def _dispatch_line(self, line):
         """把一条应答行派发给特征匹配的等待事务，否则归入异步旁路。"""
+        # print("[RX] %r" % line) # debug use; print all usb recieve msg
         with self._match_lock:
             for tx in self._pending:
                 if tx.pattern.match(line):
@@ -413,6 +422,72 @@ class RobotArmSDK:
         """
         line = self.send_command("#GET_TEMP", pattern=_RESP_6FLOAT, timeout=timeout)
         return self._parse_6_floats(line)
+
+    def get_motor_status(self, node, timeout=None):
+        """#GET_STATUS node 同步查询指定电机的控制器状态。
+
+        参数:
+            node: 电机节点号 (1~6)
+
+        返回:
+            {"requestMode": int, "modeRunning": int, "state": int}
+            
+            其中:
+            - requestMode: 请求模式 (0=STOP, 1=CURRENT, 2=VELOCITY, 3=POSITION, ...)
+            - modeRunning: 运行中模式 (同 requestMode 的值，表示当前实际工作模式)
+            - state: 执行器状态机状态 (例如 5=NO_CALIB/未校准)
+
+        说明:
+            这是一个同步阻塞查询命令，会等待电机返回 CAN 0x30 ACK。
+            超时时间约 50ms。应答格式："ok MOTOR[n] MODE_REQ[r]|MODE_RUN[m]|STATE[s]"。
+            
+        异常:
+            如果返回 error MOTOR[n] TIMEOUT（如电机离线），会抛出 SDKResponseError。
+        """
+        self._check_node(node)
+        line = self.send_command("#GET_STATUS %d" % node,
+                                 pattern=_RESP_MOTOR_STATUS, timeout=timeout)
+        
+        m = _RESP_MOTOR_STATUS.match(line)
+        if m is None or m.group(3) is None:      # TIMEOUT 分支
+            raise SDKResponseError(line)
+        return {"requestMode": int(m.group(3)),
+                "modeRunning": int(m.group(4)),
+                "state":       int(m.group(5))}
+
+    def get_dce_parameters(self, node, timeout=None):
+        """#GET_DCE_PARAMS node 同步查询指定电机的 DCE 参数 (kp, kv, ki, kd)。
+
+        参数:
+            node: 电机节点号 (1~6)
+
+        返回:
+            {"kp": int, "kv": int, "ki": int, "kd": int}
+            
+            其中:
+            - kp: DCE 比例系数 (速度环 P 增益)
+            - kv: DCE 微分系数 (速度环 D 增益的前项)
+            - ki: DCE 积分系数 (速度环 I 增益)
+            - kd: DCE 微分系数 (速度环 D 增益的后项)
+
+        说明:
+            这是一个同步阻塞查询命令，会等待电机返回 CAN 0x31/0x32 ACK。
+            超时时间约 150ms。应答格式："ok MOTOR[n] KP[kp]|KV[kv]|KI[ki]|KD[kd]"。
+            
+        异常:
+            如果返回 error MOTOR[n] TIMEOUT（如电机离线），会抛出 SDKResponseError。
+        """
+        self._check_node(node)
+        line = self.send_command("#GET_DCE_PARAMS %d" % node,
+                                 pattern=_RESP_DCE_PARAMS, timeout=timeout)
+        
+        m = _RESP_DCE_PARAMS.match(line)
+        if m is None or m.group(3) is None:      # TIMEOUT 分支
+            raise SDKResponseError(line)
+        return {"kp": int(m.group(3)),
+                "kv": int(m.group(4)),
+                "ki": int(m.group(5)),
+                "kd": int(m.group(6))}
 
     # ------------------------------------------------------------------
     # 参数类命令（'#'）

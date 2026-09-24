@@ -130,6 +130,38 @@ void OnUsbAsciiCmd(const char* _cmd, size_t _len, StreamSink &_responseChannel)
                 FormatFixedN(temps.a[k], s[k], sizeof(s[k]), 1);
             Respond(_responseChannel, "ok %s %s %s %s %s %s",
                     s[0], s[1], s[2], s[3], s[4], s[5]);
+        } else if (strstr(_cmd, "GET_STATUS") != nullptr)
+        {
+            // Synchronous query for Controller Status (CAN 0x30): requestMode | modeRunning | state
+            // Example: #GET_STATUS 1 → ok 0|0|5 (node 1: STOP|STOP|NO_CALIB)
+            uint32_t node;
+            if (sscanf(_cmd, "#GET_STATUS %lu", &node) == 1 && node >= 1 && node <= 6) {
+                uint8_t reqMode = 0, modeRun = 0, stat = 0;
+                bool ok = dummy.GetMotorControllerStatus(node, &reqMode, &modeRun, &stat);
+                if (ok)
+                    Respond(_responseChannel, "ok MOTOR[%lu] MODE_REQ[%d]|MODE_RUN[%d]|STATE[%d]",
+                            node, reqMode, modeRun, stat);
+                else
+                    Respond(_responseChannel, "error MOTOR[%lu] TIMEOUT", node);
+            } else {
+                Respond(_responseChannel, "error GET_STATUS requires nodeId 1..6");
+            }
+        } else if (strstr(_cmd, "GET_DCE_PARAMS") != nullptr)
+        {
+            // Synchronous query for DCE Parameters (CAN 0x31/0x32): kp, kv, ki, kd
+            // Example: #GET_DCE_PARAMS 1 → ok kp=12345|kv=678|ki=90|kd=12
+            uint32_t node;
+            if (sscanf(_cmd, "#GET_DCE_PARAMS %lu", &node) == 1 && node >= 1 && node <= 6) {
+                int32_t kp = 0, kv = 0, ki = 0, kd = 0;
+                bool ok = dummy.GetMotorDceParameters(node, &kp, &kv, &ki, &kd);
+                if (ok)
+                    Respond(_responseChannel, "ok MOTOR[%lu] KP[%d]|KV[%d]|KI[%d]|KD[%d]",
+                            node, kp, kv, ki, kd);
+                else
+                    Respond(_responseChannel, "error MOTOR[%lu] TIMEOUT", node);
+            } else {
+                Respond(_responseChannel, "error GET_DCE_PARAMS requires nodeId 1..6");
+            }
         } else if (strstr(_cmd, "SET_DCE_KP") != nullptr)
         {
             uint32_t kp;
@@ -277,6 +309,20 @@ void OnUart4AsciiCmd(const char* _cmd, size_t _len, StreamSink &_responseChannel
                 FormatFixedN(dummy.currentJoints.a[k], s[k], sizeof(s[k]), 2);
             Respond(_responseChannel, "ok %s %s %s %s %s %s",
                     s[0], s[1], s[2], s[3], s[4], s[5]);
+        } else if (strstr(_cmd, "GET_STATUS") != nullptr)
+        {
+            uint32_t node;
+            if (sscanf(_cmd, "#GET_STATUS %lu", &node) == 1 && node >= 1 && node <= 6) {
+                uint8_t reqMode = 0, modeRun = 0, stat = 0;
+                bool ok = dummy.GetMotorControllerStatus(node, &reqMode, &modeRun, &stat);
+                if (ok)
+                    Respond(_responseChannel, "ok MOTOR[%lu] MODE_REQ[%d]|MODE_RUN[%d]|STATE[%d]",
+                            node, reqMode, modeRun, stat);
+                else
+                    Respond(_responseChannel, "error MOTOR[%lu] TIMEOUT", node);
+            } else {
+                Respond(_responseChannel, "error GET_STATUS requires nodeId 1..6");
+            }
         } else if (strstr(_cmd, "GETLPOS") != nullptr)
         {
             dummy.UpdateJointPose6D();

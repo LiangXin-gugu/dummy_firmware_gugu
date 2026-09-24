@@ -165,6 +165,14 @@ public:
     bool IsMoving();
     bool IsEnabled();
     void SetCommandMode(uint32_t _mode);
+    // Synchronous query for Controller Status of a single motor
+    // nodeId: 1..6, timeout ~50ms. Returns true on success.
+    bool GetMotorControllerStatus(uint8_t nodeId, uint8_t* requestMode, 
+                                   uint8_t* modeRunning, uint8_t* state);
+    // Synchronous query for DCE Parameters of a single motor
+    // nodeId: 1..6, timeout ~100ms (waiting for both 0x31 and 0x32). Returns true on success.
+    bool GetMotorDceParameters(uint8_t nodeId, int32_t* kp, int32_t* kv, 
+                                int32_t* ki, int32_t* kd);
 
 
     // Communication protocol definitions

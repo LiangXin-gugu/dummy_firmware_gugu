@@ -31,6 +31,23 @@ public:
     // The motor side only samples ~1Hz and requires 0x7d (SetEnableTemp(true)) first,
     // otherwise this stays 0. Trigger a request via UpdateTemp().
     float temperature = 0;
+    // Controller status bytes from CAN 0x30 ACK: [requestMode, modeRunning, state]
+    // Synchronously queried on demand via GetControllerStatus()
+    uint8_t statusRequestMode = 0;
+    uint8_t statusModeRunning = 0;
+    uint8_t statusState = 0;
+    // Flag to indicate fresh 0x30 ACK received since last query
+    volatile bool statusReceived = false;
+    
+    // DCE parameters from CAN 0x31/0x32 ACK: [kp, kv] + [ki, kd]
+    // Synchronously queried on demand via GetDceParameters()
+    int32_t dceKp = 0;
+    int32_t dceKv = 0;
+    int32_t dceKi = 0;
+    int32_t dceKd = 0;
+    // Flags to indicate fresh 0x31/0x32 ACK received since last query
+    volatile bool dceParamsLowReceived = false;  // 0x31
+    volatile bool dceParamsHighReceived = false;  // 0x32
     bool inverseDirection;
     uint8_t reduction;
     State state = STOP;
@@ -70,6 +87,12 @@ public:
     void UpdateTemp();
     void UpdateAngle();
     void UpdateAngleCallback(float _pos, bool _isFinished);
+    // Synchronous query for Controller Status (CAN 0x30)
+    // Returns true if successful, false on timeout/error
+    bool GetControllerStatus();
+    // Synchronous query for DCE Parameters (CAN 0x31/0x32)
+    // Returns true if successful, false on timeout/error
+    bool GetDceParameters();
 
 
     // Communication protocol definitions
