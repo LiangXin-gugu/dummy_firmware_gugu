@@ -106,6 +106,16 @@ void OnUsbAsciiCmd(const char* _cmd, size_t _len, StreamSink &_responseChannel)
                     dummy.GetJointAccelerationPercent(),
                     bases.a[0], bases.a[1], bases.a[2],
                     bases.a[3], bases.a[4], bases.a[5]);
+        } else if (strstr(_cmd, "ENABLE_CURRENT_MONITORING") != nullptr)
+        {
+            dummy.enableCurrentPolling = true;
+            Respond(_responseChannel, "ok Start monitoring current" );
+
+        } else if (strstr(_cmd, "DISABLE_CURRENT_MONITORING") != nullptr)
+        {
+            dummy.enableCurrentPolling = false;
+            Respond(_responseChannel, "ok Stop monitoring current" );
+
         } else if (strstr(_cmd, "GET_CURRENT") != nullptr)
         {
             // Reads the cached motor currents (amps). Cache is refreshed at ~50Hz by
@@ -161,6 +171,38 @@ void OnUsbAsciiCmd(const char* _cmd, size_t _len, StreamSink &_responseChannel)
                     Respond(_responseChannel, "error MOTOR[%lu] TIMEOUT", node);
             } else {
                 Respond(_responseChannel, "error GET_DCE_PARAMS requires nodeId 1..6");
+            }
+        } else if (strstr(_cmd, "GET_DCE_OUTPUT") != nullptr)
+        {
+            // Asynchronous query for DCE Output + Position + Velocity telemetry (CAN 0x33~0x37)
+            // Example: #GET_DCE_OUTPUT 1 → starts polling motor 1 at ~25Hz, returns "ok START"
+            //          Then read data via GET_TELEMETRY 1
+            uint32_t node;
+            if (sscanf(_cmd, "#GET_DCE_OUTPUT %lu", &node) == 1 && node >= 1 && node <= 6) {
+                dummy.queryNodeForTelemetry = node;
+                Respond(_responseChannel, "ok START Telemetry polling for Motor[%lu]", node);
+            } else if (sscanf(_cmd, "#GET_DCE_OUTPUT %lu", &node) == 1 && node == 0)
+            {
+                dummy.queryNodeForTelemetry = node;
+                Respond(_responseChannel, "ok STOP Telemetry polling for Motor[%lu]", node);
+            } else {
+                Respond(_responseChannel, "error GET_DCE_OUTPUT requires nodeId 1..6");
+            }
+        } else if (strstr(_cmd, "GET_TELEMETRY") != nullptr)
+        {
+            // Read cached telemetry for specified motor (updated by UpdateLoop)
+            // Example: #GET_TELEMETRY 1 → ok OUT_KP[1234]|OUT_KI[567]|OUT_KD[89]|OUT_TOT[0]|REAL_P[0]|EST_P[0]|EST_V[0]|SOFT_V[0]|SOFT_P[0]
+            uint32_t node;
+            if (sscanf(_cmd, "#GET_TELEMETRY %lu", &node) == 1 && node >= 1 && node <= 6) {
+                auto telem = dummy.GetMotorTelemetry(node);
+                Respond(_responseChannel,
+                        "M%lu:%d,%d,%d,%d,%d,%d,%d,%d,%d",
+                        node,
+                        telem.dceOutputKp, telem.dceOutputKi, telem.dceOutputKd, telem.dceOutputTotal,
+                        telem.realPosition, telem.estPosition, telem.estVelocity,
+                        telem.softVelocity, telem.softPosition);
+            } else {
+                Respond(_responseChannel, "error GET_TELEMETRY requires nodeId 1..6");
             }
         } else if (strstr(_cmd, "SET_DCE_KP") != nullptr)
         {

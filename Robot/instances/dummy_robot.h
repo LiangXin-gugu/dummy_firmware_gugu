@@ -173,6 +173,25 @@ public:
     // nodeId: 1..6, timeout ~100ms (waiting for both 0x31 and 0x32). Returns true on success.
     bool GetMotorDceParameters(uint8_t nodeId, int32_t* kp, int32_t* kv, 
                                 int32_t* ki, int32_t* kd);
+    
+    // Asynchronous telemetry getters (refreshed by UpdateSingleNodeTelemetry)
+    // Similar pattern to GetMotorCurrents() / GetMotorTemperatures()
+    struct MotorTelemetry {
+        int32_t dceOutputKp, dceOutputKi;
+        int32_t dceOutputKd, dceOutputTotal;
+        int32_t realPosition, estPosition;
+        int32_t estVelocity, softVelocity;
+        int32_t softPosition;
+    };
+    MotorTelemetry GetMotorTelemetry(uint8_t nodeId) const;
+
+    // Asynchronous telemetry update
+    // queryNodeForTelemetry != 0 indicates the node to query in UpdateLoop
+    uint8_t queryNodeForTelemetry = 0;
+    void UpdateSingleNodeTelemetry();
+
+    // current polling button
+    bool enableCurrentPolling = true;
 
 
     // Communication protocol definitions

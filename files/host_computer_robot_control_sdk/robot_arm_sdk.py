@@ -113,6 +113,18 @@ _RESP_DCE_PARAMS = re.compile(
     r"^(ok|error) MOTOR\[(\d+)\] "
     r"(?:KP\[(\d+)\]\|KV\[(\d+)\]\|KI\[(\d+)\]\|KD\[(\d+)\]|TIMEOUT)$")
 
+# 控制器遥测查询（异步）：启动查询后返回 "ok START or STOP"
+_RESP_TELEMETRY_START = re.compile(
+    r"^ok (?P<action>START|STOP) Telemetry polling for Motor\[(?P<node>\d+)\]$"
+)
+
+# 读取缓存的遥测数据："M6:100,50,10,160,-100,100,20,15,95"
+_RESP_TELEMETRY_DATA = re.compile(
+    r"^M(\d+):"
+    r"(-?\d+),(-?\d+),(-?\d+),(-?\d+),"
+    r"(-?\d+),(-?\d+),(-?\d+),(-?\d+),(-?\d+)$"
+)
+
 class _PendingTx:
     """一个正在等待应答的事务。"""
 
@@ -402,6 +414,15 @@ class RobotArmSDK:
                                  timeout=timeout)
         return [float(x) for x in line.split()[1:8]]
 
+    def enable_current_monitoring(self, timeout=None):
+        """!ENABLE_CURRENT_MONITORING 使能电机电流监控。"""
+        return self.send_command("#ENABLE_CURRENT_MONITORING", pattern=re.compile(r"^ok Start monitoring current$"),
+                                 timeout=timeout)
+    def disable_current_monitoring(self, timeout=None):
+        """!DISABLE_CURRENT_MONITORING 去使能电机电流监控。"""
+        return self.send_command("#DISABLE_CURRENT_MONITORING", pattern=re.compile(r"^ok Stop monitoring current$"),
+                                 timeout=timeout)
+
     def get_motor_currents(self, timeout=None):
         """#GET_CURRENT 读取 6 个电机的 FOC 电流（安培），返回 [i1..i6]。
 
@@ -488,6 +509,73 @@ class RobotArmSDK:
                 "kv": int(m.group(4)),
                 "ki": int(m.group(5)),
                 "kd": int(m.group(6))}
+
+    def start_motor_telemetry(self, node, timeout=None):
+        """#GET_DCE_PARAMS node 启动指定电机的异步遥测查询 (CAN 0x33~0x37)。
+
+        参数:
+            node: 电机节点号 (1~6)
+            timeout: 可选，超时时间
+
+        返回:
+            {"node": int, "freq": int} 表示启动成功及查询频率
+            
+        说明:
+            这是一个非阻塞启动命令，会在后台以~25Hz 轮询该电机的遥测数据 (0x33~0x37)。
+            启动后，使用 get_motor_telemetry(node) 读取最新缓存值。
+            应答格式："ok START Telemetry polling for Motor[n]"。
+            
+        异常:
+            如果参数错误，会抛出 SDKResponseError。
+        """
+        # self._check_node(node)
+        line = self.send_command("#GET_DCE_OUTPUT %d" % node,
+                                 pattern=_RESP_TELEMETRY_START, timeout=timeout)
+        
+        m = _RESP_TELEMETRY_START.match(line)
+        if m is None:
+            raise SDKResponseError(line)
+        return line
+
+    def get_motor_telemetry(self, node, timeout=None):
+        """获取指定电机的控制器遥测数据（DCE Output + Position + Velocity）。
+
+        参数:
+            node: 电机节点号 (1~6)
+            timeout: 可选，超时时间
+
+        返回:
+            {
+                "outKp": int, "outKi": int,   # DCE Output: P, I 分量
+                "outKd": int, "outTot": int,  # DCE Output: D, Total 分量
+                "realPos": int, "estPos": int, # 实际位置、估计位置
+                "estVel": int, "softVel": int, # 估计速度、软速度
+                "softPos": int                  # 软位置
+            }
+            
+        说明:
+            此方法直接读取缓存值，不触发任何 CAN 请求。
+            调用 start_motor_telemetry(node) 后，UpdateLoop 会自动刷新这些数据。
+            应答格式："ok MOTOR[n] OUT_KP[x]|OUT_KI[x]|...|SOFT_P[x]"。
+        """
+        self._check_node(node)
+        line = self.send_command("#GET_TELEMETRY %d" % node,
+                                 pattern=_RESP_TELEMETRY_DATA, timeout=timeout)
+        
+        m = _RESP_TELEMETRY_DATA.match(line)
+        if m is None:
+            raise SDKResponseError(line)
+        return {
+            "outKp": int(m.group(2)),
+            "outKi": int(m.group(3)),
+            "outKd": int(m.group(4)),
+            "outTot": int(m.group(5)),
+            "realPos": int(m.group(6)),
+            "estPos": int(m.group(7)),
+            "estVel": int(m.group(8)),
+            "softVel": int(m.group(9)),
+            "softPos": int(m.group(10))
+        }
 
     # ------------------------------------------------------------------
     # 参数类命令（'#'）

@@ -25,8 +25,10 @@ void ThreadControlLoopFixUpdate(void* argument)
     // (already sent from DummyRobot::Init), so polling faster than 1Hz would just re-fetch
     // the same value. Kept independent of IsEnabled()/commandMode so telemetry works even
     // when the arm is disabled.
-    constexpr uint32_t CURRENT_POLL_DIV = 4;    // 200Hz / 4   = 50Hz
-    constexpr uint32_t TEMP_POLL_DIV    = 200;  // 200Hz / 200 = 1Hz
+    constexpr uint32_t CURRENT_POLL_DIV       = 4;    // 200Hz / 4   = 50Hz
+    constexpr uint32_t TEMP_POLL_DIV          = 200;  // 200Hz / 200 = 1Hz
+    constexpr uint32_t CONTROLLER_POLL_DIV    = 4;    // 200Hz / 4   = 50Hz (telemetry 0x33~0x37)
+    
     uint32_t tick = 0;
 
     for (;;)
@@ -37,7 +39,7 @@ void ThreadControlLoopFixUpdate(void* argument)
         // Background telemetry broadcast (non-blocking; responses land in OnCanMessage()
         // and refresh motorJ[i]->current / ->temperature caches read by GET_CURRENT/GET_TEMP).
         ++tick;
-        if ((tick % CURRENT_POLL_DIV) == 0)
+        if ((dummy.enableCurrentPolling && (tick % CURRENT_POLL_DIV) == 0))
             dummy.UpdateAllCurrent();
         if ((tick % TEMP_POLL_DIV) == 0)
         {
@@ -47,6 +49,13 @@ void ThreadControlLoopFixUpdate(void* argument)
             // would never resume temperature sampling. Costs 1 extra CAN frame per second.
             dummy.EnableMotorTempWatch(true);
             dummy.UpdateAllTemp();
+        }
+        
+        // Asynchronous single-node telemetry update (CAN 0x33~0x37)
+        // Only active when queryNodeForTelemetry != 0, updates at ~50Hz
+        if (dummy.queryNodeForTelemetry && (tick % CONTROLLER_POLL_DIV) == 2)
+        {
+            dummy.UpdateSingleNodeTelemetry();
         }
 
         if (dummy.IsEnabled())

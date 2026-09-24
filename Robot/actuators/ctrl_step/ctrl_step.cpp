@@ -413,3 +413,32 @@ bool CtrlStepMotor::GetDceParameters()
     
     return true; // 发送成功即认为成功
 }
+
+void CtrlStepMotor::UpdateDCEOutputLow()
+{
+    uint8_t mode = 0x33;
+    txHeader.StdId = nodeID << 7 | mode;
+    CanSendMessage(get_can_ctx(hcan), canBuf, &txHeader);
+}
+void CtrlStepMotor::UpdateDCEOutputHigh()
+{
+    uint8_t mode = 0x34;
+    txHeader.StdId = nodeID << 7 | mode;
+    CanSendMessage(get_can_ctx(hcan), canBuf, &txHeader);
+}
+void CtrlStepMotor::UpdateControllerPosition()
+{
+    uint8_t mode = 0x35;
+    txHeader.StdId = nodeID << 7 | mode;
+    CanSendMessage(get_can_ctx(hcan), canBuf, &txHeader);
+}void CtrlStepMotor::UpdateControllerVel()
+{
+    uint8_t mode = 0x36;
+    txHeader.StdId = nodeID << 7 | mode;
+    CanSendMessage(get_can_ctx(hcan), canBuf, &txHeader);
+}void CtrlStepMotor::UpdateControllerSoftPosition()
+{
+    uint8_t mode = 0x37;
+    txHeader.StdId = nodeID << 7 | mode;
+    CanSendMessage(get_can_ctx(hcan), canBuf, &txHeader);
+}

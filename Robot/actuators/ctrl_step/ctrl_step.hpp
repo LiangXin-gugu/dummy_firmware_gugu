@@ -48,6 +48,18 @@ public:
     // Flags to indicate fresh 0x31/0x32 ACK received since last query
     volatile bool dceParamsLowReceived = false;  // 0x31
     volatile bool dceParamsHighReceived = false;  // 0x32
+    
+    // Controller telemetry from CAN 0x33~0x37 ACKs: [kp, ki] + [kd, output] + [realPos, estPos] + [estVel, softVel] + [softPos]
+    // Refreshed asynchronously via periodic single-node requests triggered by DummyRobot
+    int32_t dceOutputKp = 0;
+    int32_t dceOutputKi = 0;
+    int32_t dceOutputKd = 0;
+    int32_t dceOutputTotal = 0;
+    int32_t realPosition = 0;
+    int32_t estPosition = 0;
+    int32_t estVelocity = 0;
+    int32_t softVelocity = 0;
+    int32_t softPosition = 0;
     bool inverseDirection;
     uint8_t reduction;
     State state = STOP;
@@ -93,6 +105,12 @@ public:
     // Synchronous query for DCE Parameters (CAN 0x31/0x32)
     // Returns true if successful, false on timeout/error
     bool GetDceParameters();
+
+    void UpdateDCEOutputLow();
+    void UpdateDCEOutputHigh();
+    void UpdateControllerPosition();
+    void UpdateControllerVel();
+    void UpdateControllerSoftPosition();
 
 
     // Communication protocol definitions

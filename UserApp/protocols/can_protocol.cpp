@@ -89,6 +89,70 @@ void OnCanMessage(CAN_context* canCtx, CAN_RxHeaderTypeDef* rxHeader, uint8_t* d
                     dummy.motorJ[id]->dceParamsHighReceived = true;
                 }
                 break;
+            case 0x33: // Get DCE Output Low ACK: [0..3]=outputKp, [4..7]=outputKi
+                if (validMotorId) {
+                    int32_t output_kp = *(int32_t*)data;
+                    int32_t output_ki = *(int32_t*)(data + 4);
+                    // {
+                    //     Respond(*usbStreamOutputPtr, "[CAN-0x33] Motor[%lu] ID=0x%X [outputKp=%d, outputKi=%d]", 
+                    //            id, rxHeader->StdId, output_kp, output_ki);
+                    // }
+                    
+                    dummy.motorJ[id]->dceOutputKp = output_kp;
+                    dummy.motorJ[id]->dceOutputKi = output_ki;
+                }
+                break;
+            case 0x34: // Get DCE Output High ACK: [0..3]=outputKd, [4..7]=outputTotal
+                if (validMotorId) {
+                    int32_t output_kd = *(int32_t*)data;
+                    int32_t output_total = *(int32_t*)(data + 4);
+                    // {
+                    //     Respond(*usbStreamOutputPtr, "[CAN-0x34] Motor[%lu] ID=0x%X [outputKd=%d, outputTotal=%d]", 
+                    //            id, rxHeader->StdId, output_kd, output_total);
+                    // }
+                    
+                    dummy.motorJ[id]->dceOutputKd = output_kd;
+                    dummy.motorJ[id]->dceOutputTotal = output_total;
+                }
+                break;
+            case 0x35: // Get Controller Position Info ACK: [0..3]=realPos, [4..7]=estPos
+                if (validMotorId) {
+                    int32_t real_pos = *(int32_t*)data;
+                    int32_t est_pos = *(int32_t*)(data + 4);
+                    // {
+                    //     Respond(*usbStreamOutputPtr, "[CAN-0x35] Motor[%lu] ID=0x%X [realPos=%d, estPos=%d]", 
+                    //            id, rxHeader->StdId, real_pos, est_pos);
+                    // }
+                    
+                    dummy.motorJ[id]->realPosition = real_pos;
+                    dummy.motorJ[id]->estPosition = est_pos;
+                }
+                break;
+            case 0x36: // Get Controller Velocity Info ACK: [0..3]=estVel, [4..7]=softVel
+                if (validMotorId) {
+                    int32_t est_vel = *(int32_t*)data;
+                    int32_t soft_vel = *(int32_t*)(data + 4);
+                    // {
+                    //     Respond(*usbStreamOutputPtr, "[CAN-0x36] Motor[%lu] ID=0x%X [estVel=%d, softVel=%d]", 
+                    //            id, rxHeader->StdId, est_vel, soft_vel);
+                    // }
+                    
+                    dummy.motorJ[id]->estVelocity = est_vel;
+                    dummy.motorJ[id]->softVelocity = soft_vel;
+                }
+                break;
+            case 0x37: // Get Controller Soft Position ACK: [0..3]=softPos
+                if (validMotorId) {
+                    int32_t soft_pos = *(int32_t*)data;
+                    // {
+                    //     Respond(*usbStreamOutputPtr, "[CAN-0x37] Motor[%lu] ID=0x%X [softPos=%d]", 
+                    //            id, rxHeader->StdId, soft_pos);
+                    // }
+                    
+                    dummy.motorJ[id]->softPosition = soft_pos;
+                    
+                }
+                break;
             default:
                 break;
         }

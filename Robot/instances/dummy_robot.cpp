@@ -830,3 +830,46 @@ bool DummyRobot::GetMotorDceParameters(uint8_t nodeId, int32_t* kp, int32_t* kv,
     motorJ[nodeId]->dceParamsHighReceived = false;
     return false;
 }
+
+DummyRobot::MotorTelemetry DummyRobot::GetMotorTelemetry(uint8_t nodeId) const
+{
+    if (nodeId < 1 || nodeId > 6) {
+        // Return zeroed telemetry for invalid node
+        return MotorTelemetry{0, 0, 0, 0, 0, 0, 0, 0, 0};
+    }
+    
+    MotorTelemetry telemetry;
+    telemetry.dceOutputKp = motorJ[nodeId]->dceOutputKp;
+    telemetry.dceOutputKi = motorJ[nodeId]->dceOutputKi;
+    telemetry.dceOutputKd = motorJ[nodeId]->dceOutputKd;
+    telemetry.dceOutputTotal = motorJ[nodeId]->dceOutputTotal;
+    telemetry.realPosition = motorJ[nodeId]->realPosition;
+    telemetry.estPosition = motorJ[nodeId]->estPosition;
+    telemetry.estVelocity = motorJ[nodeId]->estVelocity;
+    telemetry.softVelocity = motorJ[nodeId]->softVelocity;
+    telemetry.softPosition = motorJ[nodeId]->softPosition;
+    return telemetry;
+}
+
+void DummyRobot::UpdateSingleNodeTelemetry()
+{
+    if (queryNodeForTelemetry == 0 || queryNodeForTelemetry > 6) {
+        queryNodeForTelemetry = 0;
+        return;
+    }
+    
+    // Send CAN 0x33~0x37 requests to the specified node one by one
+    // Each request returns an ACK with 8 bytes of data
+    CtrlStepMotor* motor = motorJ[queryNodeForTelemetry];
+    
+    // 0x33: Get DCE Output Low (outputKp, outputKi)
+    motor->UpdateDCEOutputLow();
+    // 0x34: Get DCE Output High (outputKd, outputTotal)
+    motor->UpdateDCEOutputHigh();
+    // 0x35: Get Controller Position Info (realPosition, estPosition)
+    motor->UpdateControllerPosition();
+    // 0x36: Get Controller Velocity Info (estVelocity, softVelocity)
+    motor->UpdateControllerVel();
+    // 0x37: Get Controller Soft Position (softPosition)
+    motor->UpdateControllerSoftPosition();
+}
